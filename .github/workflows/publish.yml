@@ -23,6 +23,13 @@ jobs:
       - name: Publish self-contained
         run: dotnet publish PsiTun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
 
+      - name: Prepare directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path publish/xray
+          New-Item -ItemType Directory -Force -Path publish/sing-box
+          New-Item -ItemType Directory -Force -Path publish/rules
+
       - name: Download Xray-core
         shell: pwsh
         run: |
@@ -50,7 +57,6 @@ jobs:
           Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
           Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
           # Also copy to rules/ for sing-box reference
-          New-Item -ItemType Directory -Force -Path publish/rules
           Copy-Item publish/xray/geosite.dat publish/rules/geosite.dat
           Copy-Item publish/xray/geoip.dat publish/rules/geoip.dat
 
