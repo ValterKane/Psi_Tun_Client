@@ -78,10 +78,22 @@ public static class SingBoxConfigGenerator
 
         var servers = new JsonArray
         {
-            // local_local — Yandex UDP, no detour (bootstrap)
+            // local_local — bootstrap DNS (IP-based, no circular dep)
             new JsonObject
             {
                 ["server"] = "77.88.8.8",
+                ["type"] = "udp",
+                ["tag"] = "local_local"
+            },
+            new JsonObject
+            {
+                ["server"] = "1.1.1.1",
+                ["type"] = "udp",
+                ["tag"] = "local_local"
+            },
+            new JsonObject
+            {
+                ["server"] = "8.8.8.8",
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
