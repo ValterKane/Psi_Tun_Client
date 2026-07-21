@@ -44,9 +44,15 @@ jobs:
       - name: Download Runetfreedom rules
         shell: pwsh
         run: |
+          $geoUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"
+          $ipUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"
+          # Xray looks in its working directory
+          Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
+          Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
+          # Also copy to rules/ for sing-box reference
           New-Item -ItemType Directory -Force -Path publish/rules
-          Invoke-WebRequest "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" -OutFile publish/rules/geosite.dat
-          Invoke-WebRequest "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" -OutFile publish/rules/geoip.dat
+          Copy-Item publish/xray/geosite.dat publish/rules/geosite.dat
+          Copy-Item publish/xray/geoip.dat publish/rules/geoip.dat
 
       - name: Package
         shell: pwsh
