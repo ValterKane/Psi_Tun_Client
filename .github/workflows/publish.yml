@@ -1,0 +1,37 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish self-contained
+        run: dotnet publish PsiTun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath PsiTun.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PsiTun ${{ github.ref_name }}
+          files: PsiTun.zip
+          draft: false
+          prerelease: false

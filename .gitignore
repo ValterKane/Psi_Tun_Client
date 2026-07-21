@@ -1,0 +1,38 @@
+# Build output
+bin/
+obj/
+publish/
+*.exe
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+# Downloaded cores
+xray/
+sing-box/
+*.zip
+cache.db
+.bootstrapped
+
+# Configs (generated at runtime)
+config.json
+sing-box-config.json
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+
+# Rules download cache
+rules/geosite.dat
+rules/geoip.dat
+
+# User data
+appsettings.json
+servers.json
+
+# Logs
+*.log
+crash.log

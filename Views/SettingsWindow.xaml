@@ -1,0 +1,163 @@
+<Window x:Class="PsiTun.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки" Height="560" Width="540"
+        MinHeight="400" MinWidth="460"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="#1E1E2E" Foreground="#E0E0E0"
+        FontFamily="Segoe UI" FontSize="13">
+
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CaretBrush" Value="#E0E0E0"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#A0A0B0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#B0B0C0"/>
+            <Setter Property="BorderBrush" Value="#3D3D50"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#A0A0B0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#80CBC4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" Grid.RowSpan="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- TUN Adapter -->
+                <TextBlock Style="{StaticResource SectionTitle}" Text="TUN Adapter"/>
+
+                <GroupBox Header="Сеть" Margin="0,0,0,10">
+                    <Grid Margin="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Имя адаптера:"/>
+                        <TextBox x:Name="TunName" Grid.Row="0" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="IPv4-адрес:"/>
+                        <TextBox x:Name="TunAddress" Grid.Row="1" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Маска подсети:"/>
+                        <TextBox x:Name="TunMask" Grid.Row="2" Grid.Column="1"
+                                 Height="24" IsReadOnly="True"
+                                 Background="#252535"
+                                 ToolTip="Авто из CIDR: /30 = 255.255.255.252"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Шлюз:"/>
+                        <TextBox x:Name="TunGateway" Grid.Row="3" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="DNS:"/>
+                        <TextBox x:Name="TunDns" Grid.Row="4" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="MTU:"/>
+                        <TextBox x:Name="TunMtu" Grid.Row="5" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Стек:"/>
+                        <ComboBox x:Name="TunStack" Grid.Row="6" Grid.Column="1"
+                                  Height="24">
+                            <ComboBoxItem Content="gvisor (виртуальный, без elevation)"/>
+                            <ComboBoxItem Content="system (адаптер в Windows, нужен админ)"/>
+                            <ComboBoxItem Content="mixed"/>
+                        </ComboBox>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Опции" Margin="0,0,0,10">
+                    <StackPanel Margin="8">
+                        <CheckBox x:Name="AutoRoute" Content="Auto-route (требует права админа)"
+                                  Margin="0,0,0,6"/>
+                        <CheckBox x:Name="Sniffing" Content="Sniffing (определение протокола)"
+                                  Margin="0,0,0,6"/>
+                        <CheckBox x:Name="UsePac" Content="PAC-прокси (системный прокси)"
+                                  Margin="0,0,0,6"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Proxy -->
+                <TextBlock Style="{StaticResource SectionTitle}" Text="Proxy"/>
+
+                <GroupBox Header="Порты" Margin="0,0,0,10">
+                    <Grid Margin="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="32"/>
+                            <RowDefinition Height="32"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="HTTP:"/>
+                        <TextBox x:Name="HttpPort" Grid.Row="0" Grid.Column="1"
+                                 Height="24"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="SOCKS:"/>
+                        <TextBox x:Name="SocksPort" Grid.Row="1" Grid.Column="1"
+                                 Height="24"/>
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Сохранить" Click="Save_Click"
+                    Width="100" Height="30"
+                    Background="#4CAF50" Foreground="White"
+                    BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"
+                    Margin="0,0,8,0"/>
+            <Button Content="Отмена" Click="Cancel_Click"
+                    Width="80" Height="30"
+                    Background="#555565" Foreground="#E0E0E0"
+                    BorderThickness="0" Cursor="Hand"/>
+        </StackPanel>
+    </Grid>
+</Window>

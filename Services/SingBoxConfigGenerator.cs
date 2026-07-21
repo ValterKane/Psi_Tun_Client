@@ -1,0 +1,347 @@
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using PsiTun.Models;
+
+namespace PsiTun.Services;
+
+/// <summary>
+/// Generates sing-box config.json for TUN + DNS + routing.
+/// Structure matches V2RayN's working sing-box config (v2rayN_working_config_2.json).
+/// sing-box captures traffic via TUN (gvisor), resolves DNS, and forwards to Xray SOCKS.
+/// </summary>
+public static class SingBoxConfigGenerator
+{
+    private static readonly Dictionary<string, string[]> DnsHosts = new()
+    {
+        ["dns.google"] = ["8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+        ["dns.alidns.com"] = ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"],
+        ["one.one.one.one"] = ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
+        ["1dot1dot1dot1.cloudflare-dns.com"] = ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
+        ["cloudflare-dns.com"] = ["104.16.249.249", "104.16.248.249", "2606:4700::6810:f8f9", "2606:4700::6810:f9f9"],
+        ["dns.cloudflare.com"] = ["162.159.61.8", "172.64.41.8", "2a06:98c1:52::8", "2803:f800:53::8"],
+        ["dot.pub"] = ["1.12.12.12", "120.53.53.53"],
+        ["doh.pub"] = ["1.12.12.12", "120.53.53.53"],
+        ["dns.quad9.net"] = ["9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"],
+        ["dns.yandex.net"] = ["77.88.8.8", "77.88.8.1", "2a02:6b8::feed:0ff", "2a02:6b8:0:1::feed:0ff"],
+        ["dns.sb"] = ["45.11.45.11", "185.222.222.222", "2a09::", "2a11::"],
+        ["dns.umbrella.com"] = ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
+        ["dns.sse.cisco.com"] = ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
+        ["engage.cloudflareclient.com"] = ["162.159.192.1", "2606:4700:d0::a29f:c001"]
+    };
+
+    public static string Generate(string rulesDir, SettingsService settings,
+        List<VpnServer> servers, int selectedIndex)
+    {
+        var server = selectedIndex < servers.Count ? servers[selectedIndex] : null;
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        var xrayPath = Path.Combine(baseDir, "xray", "xray.exe");
+        var cachePath = Path.Combine(baseDir, "cache.db");
+
+        var config = new JsonObject
+        {
+            ["log"] = new JsonObject
+            {
+                ["level"] = "warn",
+                ["timestamp"] = true
+            },
+            ["dns"] = BuildDnsConfig(server),
+            ["inbounds"] = BuildInbounds(settings),
+            ["outbounds"] = BuildOutbounds(settings),
+            ["endpoints"] = new JsonArray(),
+            ["route"] = BuildRouteConfig(xrayPath, cachePath),
+            ["experimental"] = new JsonObject
+            {
+                ["cache_file"] = new JsonObject
+                {
+                    ["enabled"] = true,
+                    ["path"] = cachePath,
+                    ["store_fakeip"] = false
+                }
+            }
+        };
+
+        return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static JsonObject BuildDnsConfig(VpnServer? server)
+    {
+        // Predefined hosts — same as V2RayN
+        var predefinedHosts = new JsonObject();
+        foreach (var (domain, ips) in DnsHosts)
+        {
+            var ipArray = new JsonArray();
+            foreach (var ip in ips) ipArray.Add(ip);
+            predefinedHosts[domain] = ipArray;
+        }
+
+        var servers = new JsonArray
+        {
+            // local_local — Yandex UDP, no detour (bootstrap)
+            new JsonObject
+            {
+                ["server"] = "77.88.8.8",
+                ["type"] = "udp",
+                ["tag"] = "local_local"
+            },
+            // remote_dns — Google UDP via proxy, uses local_local as domain_resolver
+            new JsonObject
+            {
+                ["server"] = "8.8.8.8",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "udp",
+                ["tag"] = "remote_dns",
+                ["detour"] = "proxy"
+            },
+            // direct_dns — Yandex UDP for direct-routed domains, uses local_local as domain_resolver
+            new JsonObject
+            {
+                ["server"] = "77.88.8.8",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "udp",
+                ["tag"] = "direct_dns"
+            },
+            // hosts_dns — predefined hostname→IP mappings
+            new JsonObject
+            {
+                ["predefined"] = predefinedHosts,
+                ["type"] = "hosts",
+                ["tag"] = "hosts_dns"
+            }
+        };
+
+        var rules = new JsonArray
+        {
+            // Hosts first (ip_accept_any)
+            new JsonObject
+            {
+                ["server"] = "hosts_dns",
+                ["ip_accept_any"] = true
+            }
+        };
+
+        // Resolve VPN server domain directly (not through proxy)
+        if (server != null && !string.IsNullOrEmpty(server.Address))
+        {
+            var serverDomains = new JsonArray { server.Address };
+            rules.Add(new JsonObject
+            {
+                ["server"] = "direct_dns",
+                ["domain"] = serverDomains
+            });
+        }
+
+        // Query type 64/65 → NOERROR (DNS rebinding prevention)
+        rules.Add(new JsonObject
+        {
+            ["action"] = "predefined",
+            ["rcode"] = "NOERROR",
+            ["query_type"] = new JsonArray { 64, 65 }
+        });
+
+        // Default fallback → direct_dns
+        rules.Add(new JsonObject { ["server"] = "direct_dns" });
+
+        return new JsonObject
+        {
+            ["servers"] = servers,
+            ["rules"] = rules,
+            ["final"] = "remote_dns",
+            ["independent_cache"] = true
+        };
+    }
+
+    private static JsonArray BuildInbounds(SettingsService s)
+    {
+        var inbounds = new JsonArray();
+
+        // TUN inbound — gvisor stack (no admin needed), matches V2RayN
+        if (s.UseTun)
+        {
+            var address = new JsonArray { s.TunAddress };
+            inbounds.Add(new JsonObject
+            {
+                ["type"] = "tun",
+                ["tag"] = "tun",
+                ["interface_name"] = "singbox_tun",
+                ["address"] = address,
+                ["mtu"] = 9000,
+                ["auto_route"] = true,
+                ["strict_route"] = true,
+                ["stack"] = "system"
+            });
+        }
+
+        // SOCKS inbound — user-facing proxy port
+        inbounds.Add(new JsonObject
+        {
+            ["type"] = "socks",
+            ["tag"] = "socks-in",
+            ["listen"] = "127.0.0.1",
+            ["listen_port"] = s.SocksPort
+        });
+
+        // HTTP inbound — user-facing proxy port
+        inbounds.Add(new JsonObject
+        {
+            ["type"] = "http",
+            ["tag"] = "http-in",
+            ["listen"] = "127.0.0.1",
+            ["listen_port"] = s.HttpPort
+        });
+
+        return inbounds;
+    }
+
+    private static JsonArray BuildOutbounds(SettingsService s)
+    {
+        return new JsonArray
+        {
+            // Proxy → Xray SOCKS (version 5)
+            new JsonObject
+            {
+                ["server"] = "127.0.0.1",
+                ["server_port"] = s.XrayInboundPort,
+                ["version"] = "5",
+                ["type"] = "socks",
+                ["tag"] = "proxy"
+            },
+            // Direct
+            new JsonObject
+            {
+                ["type"] = "direct",
+                ["tag"] = "direct"
+            }
+        };
+    }
+
+    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath)
+    {
+        var rulesDir = Path.Combine(Path.GetDirectoryName(xrayPath)!, "..", "rules");
+        var geositePrivatePath = Path.Combine(rulesDir, "geosite-private.srs");
+        var geositeAdsPath = Path.Combine(rulesDir, "geosite-category-ads-all.srs");
+
+        var xrayExePath = xrayPath; // JsonSerializer handles escaping
+
+        var rules = new JsonArray
+        {
+            // Exclude Xray's own DNS from hijack — send to sing-box DNS instead
+            new JsonObject
+            {
+                ["port"] = new JsonArray { 53 },
+                ["process_path"] = new JsonArray { xrayExePath },
+                ["action"] = "hijack-dns"
+            },
+            // Xray process traffic goes direct (no loop)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["process_path"] = new JsonArray { xrayExePath }
+            },
+            // Sniff for protocol detection
+            new JsonObject { ["action"] = "sniff" },
+            // DNS hijack — logical OR of port 53 + protocol dns
+            new JsonObject
+            {
+                ["type"] = "logical",
+                ["mode"] = "or",
+                ["rules"] = new JsonArray
+                {
+                    new JsonObject { ["port"] = new JsonArray { 53 } },
+                    new JsonObject { ["protocol"] = new JsonArray { "dns" } }
+                },
+                ["action"] = "hijack-dns"
+            },
+            // Discord → proxy always (before ip_is_private)
+            new JsonObject
+            {
+                ["outbound"] = "proxy",
+                ["process_name"] = new JsonArray { "discord.exe" }
+            },
+            // BitTorrent protocol → direct (DPI, catches all clients)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["protocol"] = new JsonArray { "bittorrent" }
+            },
+            // P2P/Torrent/Steam/Launchers → direct (high-volume, no proxy needed)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["process_name"] = new JsonArray
+                {
+                    "qbittorrent.exe", "utorrent.exe", "bittorrent.exe",
+                    "transmission.exe", "deluge.exe", "vuze.exe",
+                    "steam.exe", "steamwebhelper.exe", "steamservice.exe",
+                    "epicgameslauncher.exe", "eadesktop.exe", "origin.exe",
+                    "ubisoftconnect.exe", "battlenet.exe", "goggalaxy.exe",
+                    "rsilauncher.exe", "riotclientux.exe",
+                    "minecraftlauncher.exe", "tlauncher.exe",
+                    "warframe.x64.exe", "warframe.exe",
+                    "overwatch.exe", "destiny2.exe"
+                }
+            },
+            // Private IPs → direct
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["ip_is_private"] = true
+            },
+            // TCP/UDP catch-all → proxy
+            new JsonObject
+            {
+                ["outbound"] = "proxy",
+                ["port_range"] = new JsonArray { "0:65535" }
+            }
+        };
+
+        var route = new JsonObject
+        {
+            ["default_domain_resolver"] = new JsonObject { ["server"] = "direct_dns" },
+            ["auto_detect_interface"] = true,
+            ["rules"] = rules,
+            ["final"] = "direct"
+        };
+
+        // Add rule_set if .srs files exist (optional — V2RayN compatibility)
+        var ruleSets = new JsonArray();
+        if (File.Exists(geositeAdsPath))
+        {
+            ruleSets.Add(new JsonObject
+            {
+                ["tag"] = "geosite-category-ads-all",
+                ["type"] = "local",
+                ["format"] = "binary",
+                ["path"] = geositeAdsPath.Replace("\\", "\\\\")
+            });
+            // Insert ads blocking before ip_is_private
+            rules.Insert(4, new JsonObject
+            {
+                ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
+                ["action"] = "reject"
+            });
+        }
+        if (File.Exists(geositePrivatePath))
+        {
+            ruleSets.Add(new JsonObject
+            {
+                ["tag"] = "geosite-private",
+                ["type"] = "local",
+                ["format"] = "binary",
+                ["path"] = geositePrivatePath.Replace("\\", "\\\\")
+            });
+            // Insert private rule_set before catch-all proxy
+            rules.Insert(rules.Count - 1, new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["rule_set"] = new JsonArray { "geosite-private" }
+            });
+        }
+
+        if (ruleSets.Count > 0)
+            route["rule_set"] = ruleSets;
+
+        return route;
+    }
+}
