@@ -23,6 +23,31 @@ jobs:
       - name: Publish self-contained
         run: dotnet publish PsiTun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
 
+      - name: Download Xray-core
+        shell: pwsh
+        run: |
+          $url = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+          Invoke-WebRequest $url -OutFile xray.zip
+          Expand-Archive xray.zip -DestinationPath publish/xray -Force
+          Remove-Item xray.zip
+
+      - name: Download sing-box
+        shell: pwsh
+        run: |
+          $url = "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
+          $release = Invoke-RestMethod $url
+          $asset = $release.assets | Where-Object { $_.name -like "*windows-amd64.zip" } | Select-Object -First 1
+          Invoke-WebRequest $asset.browser_download_url -OutFile sing-box.zip
+          Expand-Archive sing-box.zip -DestinationPath publish/sing-box -Force
+          Remove-Item sing-box.zip
+
+      - name: Download Runetfreedom rules
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path publish/rules
+          Invoke-WebRequest "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" -OutFile publish/rules/geosite.dat
+          Invoke-WebRequest "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" -OutFile publish/rules/geoip.dat
+
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path publish/* -DestinationPath PsiTun.zip
