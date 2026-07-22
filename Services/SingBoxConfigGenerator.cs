@@ -14,6 +14,7 @@ public static class SingBoxConfigGenerator
 {
     private static readonly Dictionary<string, string[]> DnsHosts = new()
     {
+        ["common.dot.dns.yandex.net"] = ["77.88.8.8", "77.88.8.1"],
         ["dns.google"] = ["8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"],
         ["dns.alidns.com"] = ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"],
         ["one.one.one.one"] = ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
@@ -80,13 +81,13 @@ public static class SingBoxConfigGenerator
             // local_local — bootstrap DNS (IP-based, no circular dep)
             new JsonObject
             {
-                ["server"] = "77.88.8.8",
+                ["server"] = "1.1.1.1",
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
             new JsonObject
             {
-                ["server"] = "1.1.1.1",
+                ["server"] = "77.88.8.8",
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
@@ -96,12 +97,11 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
-            // yandex_dns — DoH for ru-available-only-inside (direct, fast in RU)
+            // yandex_dns — UDP 77.88.8.8 for ru-available-only-inside (fast, direct)
             new JsonObject
             {
-                ["server"] = "https://common.dot.dns.yandex.net/dns-query",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "https",
+                ["server"] = "77.88.8.8",
+                ["type"] = "udp",
                 ["tag"] = "yandex_dns",
                 ["strategy"] = "prefer_ipv4"
             },
@@ -109,9 +109,9 @@ public static class SingBoxConfigGenerator
             new JsonObject
             {
                 ["server"] = "1.1.1.1",
-                ["domain_resolver"] = "local_local",
                 ["type"] = "udp",
-                ["tag"] = "direct_dns"
+                ["tag"] = "direct_dns",
+                ["strategy"] = "prefer_ipv4"
             },
             // remote_dns — 8.8.8.8 through proxy (final fallback, no leaks)
             new JsonObject
@@ -128,6 +128,24 @@ public static class SingBoxConfigGenerator
                 ["predefined"] = predefinedHosts,
                 ["type"] = "hosts",
                 ["tag"] = "hosts_dns"
+            },
+            // yandex_doh — DoH fallback (in pool, activate via DNS rule if UDP blocked)
+            new JsonObject
+            {
+                ["server"] = "https://common.dot.dns.yandex.net/dns-query",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "https",
+                ["tag"] = "yandex_doh",
+                ["strategy"] = "prefer_ipv4"
+            },
+            // direct_doh — Cloudflare DoH fallback (in pool, activate via DNS rule if UDP blocked)
+            new JsonObject
+            {
+                ["server"] = "https://cloudflare-dns.com/dns-query",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "https",
+                ["tag"] = "direct_doh",
+                ["strategy"] = "prefer_ipv4"
             }
         };
 
