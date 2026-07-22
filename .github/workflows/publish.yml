@@ -64,6 +64,11 @@ jobs:
           # Xray looks in its working directory
           Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
           Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
+          # sing-box rule-sets (.srs files)
+          $rulesZipUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/sing-box.zip"
+          Invoke-WebRequest $rulesZipUrl -OutFile rules.zip
+          Expand-Archive rules.zip -DestinationPath publish/sing-box/rules -Force
+          Remove-Item rules.zip
 
       - name: Package
         shell: pwsh

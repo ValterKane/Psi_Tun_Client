@@ -51,7 +51,7 @@ public static class SingBoxConfigGenerator
             ["inbounds"] = BuildInbounds(settings),
             ["outbounds"] = BuildOutbounds(settings),
             ["endpoints"] = new JsonArray(),
-            ["route"] = BuildRouteConfig(xrayPath, cachePath),
+            ["route"] = BuildRouteConfig(xrayPath, cachePath, baseDir),
             ["experimental"] = new JsonObject
             {
                 ["cache_file"] = new JsonObject
@@ -98,7 +98,22 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
-            // direct_dns — для прямых запросов
+            // yandex_dns — Яндекс UDP для RU-only сайтов (напрямую)
+            new JsonObject
+            {
+                ["server"] = "77.88.8.8",
+                ["type"] = "udp",
+                ["tag"] = "yandex_dns"
+            },
+            // yandex_doh — Яндекс DoH, fallback если UDP заблокирован
+            new JsonObject
+            {
+                ["server"] = "https://common.dot.dns.yandex.net/dns-query",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "https",
+                ["tag"] = "yandex_doh"
+            },
+            // direct_dns — 77.88.8.8 для прямых запросов
             new JsonObject
             {
                 ["server"] = "77.88.8.8",
@@ -106,7 +121,15 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "direct_dns"
             },
-            // remote_dns — 8.8.8.8 через прокси (final, нет утечек)
+            // direct_doh — Cloudflare DoH, fallback если UDP заблокирован
+            new JsonObject
+            {
+                ["server"] = "https://cloudflare-dns.com/dns-query",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "https",
+                ["tag"] = "direct_doh"
+            },
+            // remote_dns — 8.8.8.8 через прокси (для заблокированных)
             new JsonObject
             {
                 ["server"] = "8.8.8.8",
@@ -144,6 +167,28 @@ public static class SingBoxConfigGenerator
                 ["domain"] = serverDomains
             });
         }
+
+        // RU-only сайты → Яндекс DNS (напрямую, быстро)
+        rules.Add(new JsonObject
+        {
+            ["server"] = "yandex_dns",
+            ["rule_set"] = new JsonArray { "geosite-ru-available-only-inside" }
+        });
+
+        // Реклама + Win-шпионы → NXDOMAIN (блок на уровне DNS)
+        rules.Add(new JsonObject
+        {
+            ["rule_set"] = new JsonArray { "geosite-category-ads-all", "geosite-win-spy" },
+            ["action"] = "predefined",
+            ["rcode"] = "NXDOMAIN"
+        });
+
+        // Приватные домены → напрямую (direct_dns)
+        rules.Add(new JsonObject
+        {
+            ["server"] = "direct_dns",
+            ["rule_set"] = new JsonArray { "geosite-private" }
+        });
 
         // Query type 64/65 → NOERROR (DNS rebinding prevention)
         rules.Add(new JsonObject
@@ -239,7 +284,7 @@ public static class SingBoxConfigGenerator
         };
     }
 
-    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath)
+    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath, string baseDir)
     {
         var xrayExePath = xrayPath; // JsonSerializer handles escaping
 
@@ -271,6 +316,12 @@ public static class SingBoxConfigGenerator
                     new JsonObject { ["protocol"] = new JsonArray { "dns" } }
                 },
                 ["action"] = "hijack-dns"
+            },
+            // Реклама + Win-шпионы → reject (на уровне TUN)
+            new JsonObject
+            {
+                ["rule_set"] = new JsonArray { "geosite-category-ads-all", "geosite-win-spy" },
+                ["action"] = "reject"
             },
             // Discord → proxy always (before ip_is_private)
             new JsonObject
@@ -307,6 +358,18 @@ public static class SingBoxConfigGenerator
                 ["outbound"] = "direct",
                 ["ip_is_private"] = true
             },
+            // Приватные домены → direct (rule_set)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["rule_set"] = new JsonArray { "geosite-private" }
+            },
+            // RU-only сайты → direct (не идут в VPN)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["rule_set"] = new JsonArray { "geosite-ru-available-only-inside" }
+            },
             // TCP/UDP catch-all → proxy (всё остальное в xray)
             new JsonObject
             {
@@ -320,7 +383,42 @@ public static class SingBoxConfigGenerator
             ["default_domain_resolver"] = new JsonObject { ["server"] = "direct_dns" },
             ["auto_detect_interface"] = true,
             ["rules"] = rules,
-            ["final"] = "proxy"
+            ["final"] = "proxy",
+            ["rule_set"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-ru-available-only-inside",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-ru-available-only-inside.srs"),
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-category-ads-all",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-category-ads-all.srs"),
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-win-spy",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-win-spy.srs"),
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-private",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-private.srs"),
+                    ["format"] = "binary"
+                }
+            }
         };
 
         return route;
