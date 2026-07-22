@@ -1,5 +1,4 @@
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PsiTun.Models;
@@ -31,7 +30,7 @@ public static class SingBoxConfigGenerator
         ["engage.cloudflareclient.com"] = ["162.159.192.1", "2606:4700:d0::a29f:c001"]
     };
 
-    public static string Generate(string rulesDir, SettingsService settings,
+    public static string Generate(SettingsService settings,
         List<VpnServer> servers, int selectedIndex)
     {
         var server = selectedIndex < servers.Count ? servers[selectedIndex] : null;
@@ -230,10 +229,6 @@ public static class SingBoxConfigGenerator
 
     private static JsonObject BuildRouteConfig(string xrayPath, string cachePath)
     {
-        var rulesDir = Path.Combine(Path.GetDirectoryName(xrayPath)!, "..", "rules");
-        var geositePrivatePath = Path.Combine(rulesDir, "geosite-private.srs");
-        var geositeAdsPath = Path.Combine(rulesDir, "geosite-category-ads-all.srs");
-
         var xrayExePath = xrayPath; // JsonSerializer handles escaping
 
         var rules = new JsonArray
@@ -315,44 +310,6 @@ public static class SingBoxConfigGenerator
             ["rules"] = rules,
             ["final"] = "direct"
         };
-
-        // Add rule_set if .srs files exist (optional — V2RayN compatibility)
-        var ruleSets = new JsonArray();
-        if (File.Exists(geositeAdsPath))
-        {
-            ruleSets.Add(new JsonObject
-            {
-                ["tag"] = "geosite-category-ads-all",
-                ["type"] = "local",
-                ["format"] = "binary",
-                ["path"] = geositeAdsPath.Replace("\\", "\\\\")
-            });
-            // Insert ads blocking before ip_is_private
-            rules.Insert(4, new JsonObject
-            {
-                ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
-                ["action"] = "reject"
-            });
-        }
-        if (File.Exists(geositePrivatePath))
-        {
-            ruleSets.Add(new JsonObject
-            {
-                ["tag"] = "geosite-private",
-                ["type"] = "local",
-                ["format"] = "binary",
-                ["path"] = geositePrivatePath.Replace("\\", "\\\\")
-            });
-            // Insert private rule_set before catch-all proxy
-            rules.Insert(rules.Count - 1, new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["rule_set"] = new JsonArray { "geosite-private" }
-            });
-        }
-
-        if (ruleSets.Count > 0)
-            route["rule_set"] = ruleSets;
 
         return route;
     }

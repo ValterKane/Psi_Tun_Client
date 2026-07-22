@@ -28,7 +28,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path publish/xray
           New-Item -ItemType Directory -Force -Path publish/sing-box
-          New-Item -ItemType Directory -Force -Path publish/rules
 
       - name: Download Xray-core
         shell: pwsh
@@ -56,9 +55,6 @@ jobs:
           # Xray looks in its working directory
           Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
           Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
-          # Also copy to rules/ for sing-box reference
-          Copy-Item publish/xray/geosite.dat publish/rules/geosite.dat
-          Copy-Item publish/xray/geoip.dat publish/rules/geoip.dat
 
       - name: Package
         shell: pwsh

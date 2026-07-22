@@ -34,7 +34,7 @@ public static class ConfigGenerator
         ["engage.cloudflareclient.com"] = ["162.159.192.1", "2606:4700:d0::a29f:c001"]
     };
 
-    public static string Generate(List<VpnServer> servers, string rulesDir,
+    public static string Generate(List<VpnServer> servers,
         int selectedIndex = 0, SettingsService? settings = null)
     {
         settings ??= App.Settings;

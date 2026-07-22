@@ -19,7 +19,6 @@ public partial class App : Application
     public static readonly string ConfigPath = Path.Combine(BaseDir, "config.json");
     public static readonly string SingBoxConfigPath = Path.Combine(BaseDir, "sing-box-config.json");
     public static readonly string AppConfigPath = Path.Combine(BaseDir, "appsettings.json");
-    public static readonly string RulesDir = Path.Combine(BaseDir, "rules");
 
     // Services
     public static SettingsService Settings { get; private set; } = null!;
@@ -74,7 +73,6 @@ public partial class App : Application
         }
 
         Directory.CreateDirectory(BaseDir);
-        Directory.CreateDirectory(RulesDir);
 
         // Bootstrap: download Xray-core if not present
         if (!File.Exists(CoreExe))
@@ -180,17 +178,6 @@ public partial class App : Application
                 Servers = servers;
                 SelectedServerIndex = 0;
 
-                // Ensure rules dir
-                Directory.CreateDirectory(RulesDir);
-
-                // Deploy default rules if not present
-                var blockedPath = Path.Combine(RulesDir, "ru-blocked.json");
-                if (!File.Exists(blockedPath))
-                {
-                    var defaults = GetDefaultRulesJson();
-                    File.WriteAllText(blockedPath, defaults);
-                }
-
                 // Save servers
                 File.WriteAllText(Path.Combine(BaseDir, "servers.json"),
                     JsonSerializer.Serialize(Servers));
@@ -198,14 +185,14 @@ public partial class App : Application
                 // Generate config
                 if (File.Exists(CoreExe))
                 {
-                    var config = ConfigGenerator.Generate(Servers, RulesDir, SelectedServerIndex);
+                    var config = ConfigGenerator.Generate(Servers, SelectedServerIndex);
                     Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
                     File.WriteAllText(ConfigPath, config);
                 }
 
                 if (File.Exists(SingBoxExe))
                 {
-                    var sbConfig = SingBoxConfigGenerator.Generate(RulesDir, Settings, Servers, SelectedServerIndex);
+                    var sbConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex);
                     File.WriteAllText(SingBoxConfigPath, sbConfig);
                 }
 
@@ -260,10 +247,10 @@ public partial class App : Application
         }
 
         // Generate configs
-        var config = ConfigGenerator.Generate(Servers, RulesDir, SelectedServerIndex);
+        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex);
         await File.WriteAllTextAsync(ConfigPath, config);
 
-        var singBoxConfig = SingBoxConfigGenerator.Generate(RulesDir, Settings, Servers, SelectedServerIndex);
+        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex);
         await File.WriteAllTextAsync(SingBoxConfigPath, singBoxConfig);
 
         // Start cores (Xray first = SOCKS server, then sing-box = TUN)
@@ -371,35 +358,5 @@ public partial class App : Application
         Disconnect();
         _tray?.Dispose();
         Shutdown();
-    }
-
-    private static string GetDefaultRulesJson()
-    {
-        var defaults = new
-        {
-            description = "RU blocked domains",
-            domains = new[] {
-                "instagram.com", "*.instagram.com",
-                "facebook.com", "*.facebook.com", "*.fbcdn.net",
-                "twitter.com", "*.twitter.com", "*.twimg.com",
-                "x.com", "*.x.com",
-                "youtube.com", "*.youtube.com", "*.ytimg.com",
-                "googlevideo.com", "*.googlevideo.com",
-                "medium.com", "*.medium.com",
-                "t.co", "*.t.co",
-                "bbc.com", "*.bbc.com",
-                "rferl.org", "*.rferl.org",
-                "svoboda.org", "*.svoboda.org",
-                "dw.com", "*.dw.com",
-                "meduza.io", "*.meduza.io",
-                "echo.msk.ru", "*.echo.msk.ru",
-                "proton.me", "*.proton.me", "*.protonmail.com", "*.protonvpn.com",
-                "signal.org", "*.signal.org",
-                "telegram.org", "*.telegram.org", "*.t.me",
-                "discord.com", "*.discord.com", "*.discord.gg",
-            }
-        };
-        return System.Text.Json.JsonSerializer.Serialize(defaults,
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
     }
 }

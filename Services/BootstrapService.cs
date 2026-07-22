@@ -98,9 +98,6 @@ public class BootstrapService
         progress?.Report(("Downloading sing-box...", 88));
         await DownloadSingBoxAsync(http, progress);
 
-        // Deploy default rules
-        DeployDefaultRules();
-
         // Runetfreedom geo data — replaces Xray's default geosite.dat/geoip.dat
         progress?.Report(("Downloading RU geo data...", 93));
         await DownloadRunetFreedomGeoAsync(http, progress);
@@ -138,10 +135,6 @@ public class BootstrapService
                     await stream.CopyToAsync(fs);
                 }
 
-                // Also copy to rules/
-                var destRules = Path.Combine(_baseDir, "rules", asset.Name);
-                Directory.CreateDirectory(Path.GetDirectoryName(destRules)!);
-                File.Copy(destCore, destRules, overwrite: true);
             }
         }
         catch (Exception ex)
@@ -204,48 +197,6 @@ public class BootstrapService
         }
     }
 
-    private void DeployDefaultRules()
-    {
-        var rulesDir = Path.Combine(_baseDir, "rules");
-        Directory.CreateDirectory(rulesDir);
-
-        var blockedPath = Path.Combine(rulesDir, "ru-blocked.json");
-        if (!File.Exists(blockedPath))
-            File.WriteAllText(blockedPath, GetDefaultBlockedRules());
-
-        var customPath = Path.Combine(rulesDir, "ru-custom.json");
-        if (!File.Exists(customPath))
-            File.WriteAllText(customPath, "[]");
-    }
-
-    private static string GetDefaultBlockedRules()
-    {
-        var defaults = new
-        {
-            description = "RU blocked domains",
-            domains = new[] {
-                "instagram.com", "*.instagram.com",
-                "facebook.com", "*.facebook.com", "*.fbcdn.net",
-                "twitter.com", "*.twitter.com", "*.twimg.com",
-                "x.com", "*.x.com",
-                "youtube.com", "*.youtube.com", "*.ytimg.com",
-                "googlevideo.com", "*.googlevideo.com",
-                "medium.com", "*.medium.com",
-                "t.co", "*.t.co",
-                "bbc.com", "*.bbc.com",
-                "rferl.org", "*.rferl.org",
-                "svoboda.org", "*.svoboda.org",
-                "dw.com", "*.dw.com",
-                "meduza.io", "*.meduza.io",
-                "echo.msk.ru", "*.echo.msk.ru",
-                "proton.me", "*.proton.me", "*.protonmail.com", "*.protonvpn.com",
-                "signal.org", "*.signal.org",
-                "telegram.org", "*.telegram.org", "*.t.me",
-                "discord.com", "*.discord.com", "*.discord.gg",
-            }
-        };
-        return JsonSerializer.Serialize(defaults, new JsonSerializerOptions { WriteIndented = true });
-    }
 }
 
 public class GitHubRelease
