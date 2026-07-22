@@ -113,6 +113,8 @@
                     <StackPanel Margin="8">
                         <CheckBox x:Name="AutoRoute" Content="Auto-route (требует права админа)"
                                   Margin="0,0,0,6"/>
+                        <CheckBox x:Name="StrictRoute" Content="Strict-route (WFP фильтры, могут мешать на WiFi)"
+                                  Margin="0,0,0,6"/>
                         <CheckBox x:Name="Sniffing" Content="Sniffing (определение протокола)"
                                   Margin="0,0,0,6"/>
                         <CheckBox x:Name="UsePac" Content="PAC-прокси (системный прокси)"

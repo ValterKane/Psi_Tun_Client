@@ -19,6 +19,7 @@ public class SettingsService
     public int TunMtu { get; set; } = 1500;
     public string TunDns { get; set; } = "172.18.0.2";
     public bool AutoRoute { get; set; } = true;
+    public bool StrictRoute { get; set; } = true;
     public string TunStack { get; set; } = "system";
     public bool EnableSniffing { get; set; } = true;
 

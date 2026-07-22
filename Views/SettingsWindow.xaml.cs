@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
         TunDns.Text = s.TunDns;
         TunMtu.Text = s.TunMtu.ToString();
         AutoRoute.IsChecked = s.AutoRoute;
+        StrictRoute.IsChecked = s.StrictRoute;
         Sniffing.IsChecked = s.EnableSniffing;
         UsePac.IsChecked = s.UsePac;
         HttpPort.Text = s.HttpPort.ToString();
@@ -58,6 +59,7 @@ public partial class SettingsWindow : Window
         s.TunDns = TunDns.Text.Trim();
         s.TunMtu = int.TryParse(TunMtu.Text, out var mtu) ? mtu : 1500;
         s.AutoRoute = AutoRoute.IsChecked == true;
+        s.StrictRoute = StrictRoute.IsChecked == true;
         s.EnableSniffing = Sniffing.IsChecked == true;
         s.UsePac = UsePac.IsChecked == true;
         s.HttpPort = int.TryParse(HttpPort.Text, out var hp) ? hp : 10809;

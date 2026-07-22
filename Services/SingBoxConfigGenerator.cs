@@ -208,21 +208,9 @@ public static class SingBoxConfigGenerator
         };
     }
 
-    private static bool IsWiFiActive()
-    {
-        try
-        {
-            return NetworkInterface.GetAllNetworkInterfaces()
-                .Any(ni => ni.OperationalStatus == OperationalStatus.Up &&
-                           ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211);
-        }
-        catch { return false; }
-    }
-
     private static JsonArray BuildInbounds(SettingsService s)
     {
         var inbounds = new JsonArray();
-        var isWiFi = IsWiFiActive();
 
         // TUN inbound — gvisor stack (no admin needed), matches V2RayN
         if (s.UseTun)
@@ -235,8 +223,8 @@ public static class SingBoxConfigGenerator
                 ["interface_name"] = "singbox_tun",
                 ["address"] = address,
                 ["mtu"] = 9000,
-                ["auto_route"] = true,
-                ["strict_route"] = !isWiFi,
+                ["auto_route"] = s.AutoRoute,
+                ["strict_route"] = s.StrictRoute,
                 ["stack"] = "mixed"
             });
         }
