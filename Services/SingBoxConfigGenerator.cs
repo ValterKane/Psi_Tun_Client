@@ -144,21 +144,6 @@ public static class SingBoxConfigGenerator
             });
         }
 
-        // Реклама → NXDOMAIN (блок на уровне DNS)
-        rules.Add(new JsonObject
-        {
-            ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
-            ["action"] = "predefined",
-            ["rcode"] = "NXDOMAIN"
-        });
-
-        // Приватные домены → напрямую (через direct_dns)
-        rules.Add(new JsonObject
-        {
-            ["server"] = "direct_dns",
-            ["rule_set"] = new JsonArray { "geosite-private" }
-        });
-
         // Query type 64/65 → NOERROR (DNS rebinding prevention)
         rules.Add(new JsonObject
         {
@@ -274,12 +259,6 @@ public static class SingBoxConfigGenerator
                 },
                 ["action"] = "hijack-dns"
             },
-            // Реклама → reject (на уровне TUN)
-            new JsonObject
-            {
-                ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
-                ["action"] = "reject"
-            },
             // Discord → proxy always (before ip_is_private)
             new JsonObject
             {
@@ -315,12 +294,6 @@ public static class SingBoxConfigGenerator
                 ["outbound"] = "direct",
                 ["ip_is_private"] = true
             },
-            // Приватные домены → direct (через rule_set)
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["rule_set"] = new JsonArray { "geosite-private" }
-            },
             // TCP/UDP catch-all → proxy (всё остальное в xray)
             new JsonObject
             {
@@ -334,24 +307,7 @@ public static class SingBoxConfigGenerator
             ["default_domain_resolver"] = new JsonObject { ["server"] = "direct_dns" },
             ["auto_detect_interface"] = true,
             ["rules"] = rules,
-            ["final"] = "proxy",
-            ["rule_set"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["type"] = "local",
-                    ["tag"] = "geosite-category-ads-all",
-                    ["path"] = "sing-box/rules/rule-set-geosite/geosite-category-ads-all.srs",
-                    ["format"] = "binary"
-                },
-                new JsonObject
-                {
-                    ["type"] = "local",
-                    ["tag"] = "geosite-private",
-                    ["path"] = "sing-box/rules/rule-set-geosite/geosite-private.srs",
-                    ["format"] = "binary"
-                }
-            }
+            ["final"] = "proxy"
         };
 
         return route;
