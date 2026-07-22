@@ -9,7 +9,6 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
-        Owner = Application.Current.MainWindow;
 
         // Load current settings
         var s = App.Settings;
