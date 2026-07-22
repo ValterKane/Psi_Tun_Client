@@ -113,21 +113,7 @@ public static class SingBoxConfigGenerator
                 ["type"] = "https",
                 ["tag"] = "yandex_doh"
             },
-            // direct_dns — пул прямых UDP DNS (fallback между серверами)
-            new JsonObject
-            {
-                ["server"] = "1.1.1.1",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "udp",
-                ["tag"] = "direct_dns"
-            },
-            new JsonObject
-            {
-                ["server"] = "8.8.8.8",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "udp",
-                ["tag"] = "direct_dns"
-            },
+            // direct_dns — 77.88.8.8 для прямых запросов
             new JsonObject
             {
                 ["server"] = "77.88.8.8",
@@ -216,7 +202,7 @@ public static class SingBoxConfigGenerator
         {
             ["servers"] = servers,
             ["rules"] = rules,
-            ["final"] = "direct_dns",
+            ["final"] = "remote_dns",
             ["independent_cache"] = true,
             ["strategy"] = "prefer_ipv4"
         };

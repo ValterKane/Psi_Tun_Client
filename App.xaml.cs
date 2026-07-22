@@ -291,26 +291,8 @@ public partial class App : Application
             }
             catch
             {
-
+                
             }
-        };
-
-        Core.OnXrayStatusChanged += (running) =>
-        {
-            try
-            {
-                _mainWindow?.UpdateXrayStatus(running);
-            }
-            catch { }
-        };
-
-        Core.OnTunStatusChanged += (exists) =>
-        {
-            try
-            {
-                _mainWindow?.UpdateTunStatus(exists);
-            }
-            catch { }
         };
 
         try
