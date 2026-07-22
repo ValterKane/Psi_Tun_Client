@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -34,6 +35,12 @@ public partial class MainWindow : Window
                 if (line.Length == 0) continue;
                 var isError = line.Contains("ERROR") || line.Contains(":ERR");
                 var isWarn = line.Contains("WARN") || line.Contains("Warning");
+
+                if (isError)
+                {
+                    File.WriteAllLines("error.log", new[] { line });
+                }
+                
                 var brush = isError ? ErrorBrush : isWarn ? WarnBrush : InfoBrush;
                 var run = new Run(line) { Foreground = brush };
                 var p = new Paragraph { Margin = new Thickness(0), Padding = new Thickness(0), LineHeight = 1};

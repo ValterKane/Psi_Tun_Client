@@ -36,3 +36,6 @@ servers.json
 # Logs
 *.log
 crash.log
+
+# Openclaude
+.openclaude/

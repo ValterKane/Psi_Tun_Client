@@ -158,7 +158,7 @@ public static class SingBoxConfigGenerator
         {
             ["servers"] = servers,
             ["rules"] = rules,
-            ["final"] = "remote_dns",
+            ["final"] = "direct_dns",
             ["independent_cache"] = true
         };
     }
@@ -180,7 +180,7 @@ public static class SingBoxConfigGenerator
                 ["mtu"] = 9000,
                 ["auto_route"] = true,
                 ["strict_route"] = true,
-                ["stack"] = "system"
+                ["stack"] = "mixed"
             });
         }
 

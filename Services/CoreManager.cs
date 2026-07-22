@@ -70,15 +70,44 @@ public class CoreManager : IDisposable
             return;
         }
 
-        _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
-        OnLog?.Invoke("[Core] Starting sing-box (TUN+DNS)...");
+        // Retry loop: on Win10 TUN adapter creation can fail intermittently
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            if (attempt > 1)
+            {
+                OnLog?.Invoke($"[Core] Retrying sing-box (attempt {attempt}/3)...");
+                CleanupAdapter();
+                await Task.Delay(2000);
+            }
 
-        // 4. Wait for sing-box HTTP port
-        var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 10);
-        if (sbReady)
-            OnLog?.Invoke("[Core] sing-box ready");
-        else
+            _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
+            OnLog?.Invoke($"[Core] Starting sing-box (TUN+DNS)...");
+
+            // 4. Wait for sing-box HTTP port (up to 10s)
+            var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 10);
+
+            // If the process already exited with an error, retry
+            if (!sbReady && _singBoxProcess is { HasExited: true })
+            {
+                var code = _singBoxProcess.ExitCode;
+                OnLog?.Invoke($"[Core] sing-box exited early (code {code}), will retry");
+                _singBoxProcess.Dispose();
+                _singBoxProcess = null;
+                continue;
+            }
+
+            if (sbReady)
+            {
+                OnLog?.Invoke("[Core] sing-box ready");
+                return;
+            }
+
+            // Port not ready but process still running — might just be slow
             OnLog?.Invoke("[Core] sing-box may still be starting...");
+            return;
+        }
+
+        OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
     }
 
     private Process StartProcess(string exePath, string configPath, string tag)
@@ -207,7 +236,7 @@ public class CoreManager : IDisposable
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell",
-                Arguments = "-NoProfile -Command \"Get-NetAdapter -Name '*sing*','*tun*' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
+                Arguments = "-NoProfile -Command \"Get-NetAdapter -Name 'singbox_tun' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
