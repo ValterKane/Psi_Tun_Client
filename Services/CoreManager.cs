@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 
 namespace PsiTun.Services;
 
@@ -17,6 +19,7 @@ public class CoreManager : IDisposable
 
     public event Action<string>? OnLog;
     public event Action? OnExited;
+    public event Action<bool>? OnTunStatusChanged;
 
     public string LastError => _errorLines.Count > 0
         ? string.Join("\n", _errorLines.TakeLast(5))
@@ -99,6 +102,7 @@ public class CoreManager : IDisposable
             if (sbReady)
             {
                 OnLog?.Invoke("[Core] sing-box ready");
+                OnTunStatusChanged?.Invoke(true);
                 return;
             }
 
@@ -108,6 +112,17 @@ public class CoreManager : IDisposable
         }
 
         OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
+    }
+
+    public static bool CheckTunAdapterExists()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Any(ni => ni.Name.Equals("singbox_tun", StringComparison.OrdinalIgnoreCase)
+                         && ni.OperationalStatus == OperationalStatus.Up);
+        }
+        catch { return false; }
     }
 
     private Process StartProcess(string exePath, string configPath, string tag)
@@ -193,6 +208,7 @@ public class CoreManager : IDisposable
         // Stop sing-box first (removes TUN routes), then Xray
         StopSingBox();
         StopXray();
+        OnTunStatusChanged?.Invoke(false);
     }
 
     private void StopXray()
