@@ -97,23 +97,15 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
-            // yandex_dns — UDP 77.88.8.8 for ru-available-only-inside (fast, direct)
+            // direct_dns — для прямых запросов
             new JsonObject
             {
                 ["server"] = "77.88.8.8",
+                ["domain_resolver"] = "local_local",
                 ["type"] = "udp",
-                ["tag"] = "yandex_dns",
-                ["strategy"] = "prefer_ipv4"
+                ["tag"] = "direct_dns"
             },
-            // direct_dns — UDP 1.1.1.1 for direct-routed domains
-            new JsonObject
-            {
-                ["server"] = "1.1.1.1",
-                ["type"] = "udp",
-                ["tag"] = "direct_dns",
-                ["strategy"] = "prefer_ipv4"
-            },
-            // remote_dns — 8.8.8.8 through proxy (final fallback, no leaks)
+            // remote_dns — 8.8.8.8 через прокси (final, нет утечек)
             new JsonObject
             {
                 ["server"] = "8.8.8.8",
@@ -122,30 +114,12 @@ public static class SingBoxConfigGenerator
                 ["tag"] = "remote_dns",
                 ["detour"] = "proxy"
             },
-            // hosts_dns — predefined hostname→IP mappings
+            // hosts_dns — предзаполненные hostname→IP
             new JsonObject
             {
                 ["predefined"] = predefinedHosts,
                 ["type"] = "hosts",
                 ["tag"] = "hosts_dns"
-            },
-            // yandex_doh — DoH fallback (in pool, activate via DNS rule if UDP blocked)
-            new JsonObject
-            {
-                ["server"] = "https://common.dot.dns.yandex.net/dns-query",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "https",
-                ["tag"] = "yandex_doh",
-                ["strategy"] = "prefer_ipv4"
-            },
-            // direct_doh — Cloudflare DoH fallback (in pool, activate via DNS rule if UDP blocked)
-            new JsonObject
-            {
-                ["server"] = "https://cloudflare-dns.com/dns-query",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "https",
-                ["tag"] = "direct_doh",
-                ["strategy"] = "prefer_ipv4"
             }
         };
 
@@ -156,16 +130,10 @@ public static class SingBoxConfigGenerator
             {
                 ["server"] = "hosts_dns",
                 ["ip_accept_any"] = true
-            },
-            // Russia-only sites → Yandex DoH (fast, direct)
-            new JsonObject
-            {
-                ["server"] = "yandex_dns",
-                ["geosite"] = new JsonArray { "ru-available-only-inside" }
             }
         };
 
-        // Resolve VPN server domain via direct_dns (1.1.1.1)
+        // Resolve VPN server domain via direct_dns (77.88.8.8)
         if (server != null && !string.IsNullOrEmpty(server.Address))
         {
             var serverDomains = new JsonArray { server.Address };
@@ -175,6 +143,21 @@ public static class SingBoxConfigGenerator
                 ["domain"] = serverDomains
             });
         }
+
+        // Реклама → NXDOMAIN (блок на уровне DNS)
+        rules.Add(new JsonObject
+        {
+            ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
+            ["action"] = "predefined",
+            ["rcode"] = "NXDOMAIN"
+        });
+
+        // Приватные домены → напрямую (через direct_dns)
+        rules.Add(new JsonObject
+        {
+            ["server"] = "direct_dns",
+            ["rule_set"] = new JsonArray { "geosite-private" }
+        });
 
         // Query type 64/65 → NOERROR (DNS rebinding prevention)
         rules.Add(new JsonObject
@@ -291,6 +274,12 @@ public static class SingBoxConfigGenerator
                 },
                 ["action"] = "hijack-dns"
             },
+            // Реклама → reject (на уровне TUN)
+            new JsonObject
+            {
+                ["rule_set"] = new JsonArray { "geosite-category-ads-all" },
+                ["action"] = "reject"
+            },
             // Discord → proxy always (before ip_is_private)
             new JsonObject
             {
@@ -326,13 +315,13 @@ public static class SingBoxConfigGenerator
                 ["outbound"] = "direct",
                 ["ip_is_private"] = true
             },
-            // Russia-only sites → direct (gosuslugi, banks, etc.)
+            // Приватные домены → direct (через rule_set)
             new JsonObject
             {
                 ["outbound"] = "direct",
-                ["domain"] = new JsonArray { "geosite:ru-available-only-inside" }
+                ["rule_set"] = new JsonArray { "geosite-private" }
             },
-            // TCP/UDP catch-all → proxy
+            // TCP/UDP catch-all → proxy (всё остальное в xray)
             new JsonObject
             {
                 ["outbound"] = "proxy",
@@ -345,7 +334,24 @@ public static class SingBoxConfigGenerator
             ["default_domain_resolver"] = new JsonObject { ["server"] = "direct_dns" },
             ["auto_detect_interface"] = true,
             ["rules"] = rules,
-            ["final"] = "direct"
+            ["final"] = "proxy",
+            ["rule_set"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-category-ads-all",
+                    ["path"] = "sing-box/rules/rule-set-geosite/geosite-category-ads-all.srs",
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-private",
+                    ["path"] = "sing-box/rules/rule-set-geosite/geosite-private.srs",
+                    ["format"] = "binary"
+                }
+            }
         };
 
         return route;

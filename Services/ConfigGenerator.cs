@@ -163,6 +163,13 @@ public static class ConfigGenerator
                     ["outboundTag"] = ProxyTag,
                     ["domain"] = new JsonArray { "geosite:win-update" }
                 },
+                // 4. Win Update → proxy
+                new JsonObject
+                {
+                    ["type"] = "field",
+                    ["outboundTag"] = BlockTag,
+                    ["domain"] = new JsonArray { "geosite:win-spy" }
+                },
                 // 5. Private IPs → direct
                 new JsonObject
                 {
