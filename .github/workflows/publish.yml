@@ -35,6 +35,11 @@ jobs:
           $url = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
           Invoke-WebRequest $url -OutFile xray.zip
           Expand-Archive xray.zip -DestinationPath publish/xray -Force
+          # Flatten: Xray zip has a versioned subfolder, move xray.exe up if needed
+          if (-not (Test-Path publish/xray/xray.exe)) {
+            $src = Get-ChildItem publish/xray -Recurse -Filter xray.exe | Select-Object -First 1
+            if ($src) { Move-Item $src.FullName publish/xray/xray.exe -Force }
+          }
           Remove-Item xray.zip
 
       - name: Download sing-box
@@ -44,7 +49,11 @@ jobs:
           $release = Invoke-RestMethod $url
           $asset = $release.assets | Where-Object { $_.name -like "*windows-amd64.zip" } | Select-Object -First 1
           Invoke-WebRequest $asset.browser_download_url -OutFile sing-box.zip
-          Expand-Archive sing-box.zip -DestinationPath publish/sing-box -Force
+          Expand-Archive sing-box.zip -DestinationPath publish/sing-box-tmp -Force
+          # Flatten: sing-box zip has a versioned subfolder, move sing-box.exe up
+          $src = Get-ChildItem publish/sing-box-tmp -Recurse -Filter sing-box.exe | Select-Object -First 1
+          if ($src) { Move-Item $src.FullName publish/sing-box/sing-box.exe -Force }
+          Remove-Item publish/sing-box-tmp -Recurse -Force
           Remove-Item sing-box.zip
 
       - name: Download Runetfreedom rules
