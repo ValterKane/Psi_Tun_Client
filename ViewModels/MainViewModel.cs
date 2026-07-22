@@ -41,6 +41,19 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isPinging;
     public bool IsPinging { get => _isPinging; set { _isPinging = value; OnPropertyChanged(); } }
 
+    // --- Core status indicators ---
+    private string _xrayStatusText = "Xray: ⏳";
+    public string XrayStatusText { get => _xrayStatusText; set { _xrayStatusText = value; OnPropertyChanged(); } }
+
+    private string _tunStatusText = "TUN: ⏳";
+    public string TunStatusText { get => _tunStatusText; set { _tunStatusText = value; OnPropertyChanged(); } }
+
+    private Brush _xrayStatusBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x00));
+    public Brush XrayStatusBrush { get => _xrayStatusBrush; set { _xrayStatusBrush = value; OnPropertyChanged(); } }
+
+    private Brush _tunStatusBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x00));
+    public Brush TunStatusBrush { get => _tunStatusBrush; set { _tunStatusBrush = value; OnPropertyChanged(); } }
+
     // --- Settings ---
     private string _subscriptionUrl = "";
     public string SubscriptionUrl
