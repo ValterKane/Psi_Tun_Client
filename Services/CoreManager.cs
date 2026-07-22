@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 
 namespace PsiTun.Services;
 
@@ -14,15 +16,18 @@ public class CoreManager : IDisposable
     private readonly string _singBoxConfigPath;
     private readonly List<string> _errorLines = [];
     private bool _disposed;
+    private CancellationTokenSource? _tunCts;
 
     public event Action<string>? OnLog;
     public event Action? OnExited;
+    public event Action<bool>? OnTunStatusChanged;
 
     public string LastError => _errorLines.Count > 0
         ? string.Join("\n", _errorLines.TakeLast(5))
         : "";
 
     public int? ExitCode { get; private set; }
+    public bool IsTunCreated { get; private set; }
 
     public CoreManager(string xrayPath, string xrayConfigPath,
                        string singBoxPath, string singBoxConfigPath)
@@ -71,6 +76,7 @@ public class CoreManager : IDisposable
         }
 
         // Retry loop: on Win10 TUN adapter creation can fail intermittently
+        bool sbStarted = false;
         for (int attempt = 1; attempt <= 3; attempt++)
         {
             if (attempt > 1)
@@ -83,10 +89,9 @@ public class CoreManager : IDisposable
             _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
             OnLog?.Invoke($"[Core] Starting sing-box (TUN+DNS)...");
 
-            // 4. Wait for sing-box HTTP port (up to 10s)
+            // Wait for sing-box HTTP port (up to 10s)
             var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 10);
 
-            // If the process already exited with an error, retry
             if (!sbReady && _singBoxProcess is { HasExited: true })
             {
                 var code = _singBoxProcess.ExitCode;
@@ -99,15 +104,47 @@ public class CoreManager : IDisposable
             if (sbReady)
             {
                 OnLog?.Invoke("[Core] sing-box ready");
-                return;
+                sbStarted = true;
+                break;
             }
 
-            // Port not ready but process still running — might just be slow
             OnLog?.Invoke("[Core] sing-box may still be starting...");
+            sbStarted = true;
+            break;
+        }
+
+        if (!sbStarted)
+        {
+            OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
             return;
         }
 
-        OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
+        // Start TUN monitoring in background
+        _tunCts = new CancellationTokenSource();
+        _ = TunMonitorLoopAsync(_tunCts.Token);
+    }
+
+    private async Task TunMonitorLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(3000, ct); } catch { break; }
+            if (ct.IsCancellationRequested) break;
+
+            var tunExists = CheckTunAdapterExists();
+            IsTunCreated = tunExists;
+            OnTunStatusChanged?.Invoke(tunExists);
+
+            if (tunExists) continue;
+
+            OnLog?.Invoke("[Core] TUN adapter not found, restarting sing-box...");
+            StopSingBox();
+            try { await Task.Delay(2000, ct); } catch { break; }
+            CleanupAdapter();
+            try { await Task.Delay(1000, ct); } catch { break; }
+            _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
+            OnLog?.Invoke("[Core] Restarted sing-box (TUN recovery)...");
+        }
     }
 
     private Process StartProcess(string exePath, string configPath, string tag)
@@ -155,6 +192,17 @@ public class CoreManager : IDisposable
         return process;
     }
 
+    public static bool CheckTunAdapterExists()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Any(ni => ni.Name.Equals("singbox_tun", StringComparison.OrdinalIgnoreCase)
+                         && ni.OperationalStatus == OperationalStatus.Up);
+        }
+        catch { return false; }
+    }
+
     private static async Task<bool> WaitForPortAsync(int port, int maxAttempts)
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
@@ -190,9 +238,14 @@ public class CoreManager : IDisposable
 
     public void Stop()
     {
+        _tunCts?.Cancel();
+        _tunCts?.Dispose();
+        _tunCts = null;
         // Stop sing-box first (removes TUN routes), then Xray
         StopSingBox();
         StopXray();
+        IsTunCreated = false;
+        OnTunStatusChanged?.Invoke(false);
     }
 
     private void StopXray()

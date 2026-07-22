@@ -291,8 +291,13 @@ public partial class App : Application
             }
             catch
             {
-                
+
             }
+        };
+
+        Core.OnTunStatusChanged += (exists) =>
+        {
+            try { _mainWindow?.UpdateTunStatus(exists); } catch { }
         };
 
         try

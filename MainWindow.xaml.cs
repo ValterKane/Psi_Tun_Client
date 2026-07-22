@@ -63,6 +63,14 @@ public partial class MainWindow : Window
     public void UpdateServerList(List<Models.VpnServer> servers, int selectedIndex)
         => _vm.UpdateServerList(servers, selectedIndex);
 
+    public void UpdateTunStatus(bool exists)
+    {
+        _vm.TunStatusText = exists ? "TUN: ✅" : "TUN: ❌";
+        _vm.TunStatusBrush = exists
+            ? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50))
+            : new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36));
+    }
+
     private void SubscriptionBox_GotFocus(object sender, RoutedEventArgs e)
     {
         if (_subscriptionPlaceholder) { SubscriptionBox.Text = ""; _subscriptionPlaceholder = false; }
