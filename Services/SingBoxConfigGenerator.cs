@@ -113,7 +113,7 @@ public static class SingBoxConfigGenerator
                 ["type"] = "https",
                 ["tag"] = "yandex_doh"
             },
-            // direct_dns — пул прямых DNS (UDP → DoH fallback)
+            // direct_dns — пул прямых UDP DNS (fallback между серверами)
             new JsonObject
             {
                 ["server"] = "1.1.1.1",
@@ -133,20 +133,6 @@ public static class SingBoxConfigGenerator
                 ["server"] = "77.88.8.8",
                 ["domain_resolver"] = "local_local",
                 ["type"] = "udp",
-                ["tag"] = "direct_dns"
-            },
-            new JsonObject
-            {
-                ["server"] = "https://cloudflare-dns.com/dns-query",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "https",
-                ["tag"] = "direct_dns"
-            },
-            new JsonObject
-            {
-                ["server"] = "https://dns.google/dns-query",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "https",
                 ["tag"] = "direct_dns"
             },
             // direct_doh — Cloudflare DoH, fallback если UDP заблокирован
