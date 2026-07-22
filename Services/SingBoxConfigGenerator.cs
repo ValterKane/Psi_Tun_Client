@@ -96,7 +96,24 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "local_local"
             },
-            // remote_dns — Google UDP via proxy, uses local_local as domain_resolver
+            // yandex_dns — DoH for ru-available-only-inside (direct, fast in RU)
+            new JsonObject
+            {
+                ["server"] = "https://common.dot.dns.yandex.net/dns-query",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "https",
+                ["tag"] = "yandex_dns",
+                ["strategy"] = "prefer_ipv4"
+            },
+            // direct_dns — UDP 1.1.1.1 for direct-routed domains
+            new JsonObject
+            {
+                ["server"] = "1.1.1.1",
+                ["domain_resolver"] = "local_local",
+                ["type"] = "udp",
+                ["tag"] = "direct_dns"
+            },
+            // remote_dns — 8.8.8.8 through proxy (final fallback, no leaks)
             new JsonObject
             {
                 ["server"] = "8.8.8.8",
@@ -104,14 +121,6 @@ public static class SingBoxConfigGenerator
                 ["type"] = "udp",
                 ["tag"] = "remote_dns",
                 ["detour"] = "proxy"
-            },
-            // direct_dns — Yandex UDP for direct-routed domains, uses local_local as domain_resolver
-            new JsonObject
-            {
-                ["server"] = "77.88.8.8",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "udp",
-                ["tag"] = "direct_dns"
             },
             // hosts_dns — predefined hostname→IP mappings
             new JsonObject
@@ -129,10 +138,16 @@ public static class SingBoxConfigGenerator
             {
                 ["server"] = "hosts_dns",
                 ["ip_accept_any"] = true
+            },
+            // Russia-only sites → Yandex DoH (fast, direct)
+            new JsonObject
+            {
+                ["server"] = "yandex_dns",
+                ["geosite"] = new JsonArray { "ru-available-only-inside" }
             }
         };
 
-        // Resolve VPN server domain directly (not through proxy)
+        // Resolve VPN server domain via direct_dns (1.1.1.1)
         if (server != null && !string.IsNullOrEmpty(server.Address))
         {
             var serverDomains = new JsonArray { server.Address };
@@ -151,15 +166,13 @@ public static class SingBoxConfigGenerator
             ["query_type"] = new JsonArray { 64, 65 }
         });
 
-        // Default fallback → direct_dns
-        rules.Add(new JsonObject { ["server"] = "direct_dns" });
-
         return new JsonObject
         {
             ["servers"] = servers,
             ["rules"] = rules,
-            ["final"] = "direct_dns",
-            ["independent_cache"] = true
+            ["final"] = "remote_dns",
+            ["independent_cache"] = true,
+            ["strategy"] = "prefer_ipv4"
         };
     }
 
@@ -233,12 +246,12 @@ public static class SingBoxConfigGenerator
 
         var rules = new JsonArray
         {
-            // Exclude Xray's own DNS from hijack — send to sing-box DNS instead
+            // Xray's own DNS → direct (not hijacked, breaks the circular loop)
             new JsonObject
             {
                 ["port"] = new JsonArray { 53 },
                 ["process_path"] = new JsonArray { xrayExePath },
-                ["action"] = "hijack-dns"
+                ["outbound"] = "direct"
             },
             // Xray process traffic goes direct (no loop)
             new JsonObject
@@ -294,6 +307,12 @@ public static class SingBoxConfigGenerator
             {
                 ["outbound"] = "direct",
                 ["ip_is_private"] = true
+            },
+            // Russia-only sites → direct (gosuslugi, banks, etc.)
+            new JsonObject
+            {
+                ["outbound"] = "direct",
+                ["domain"] = new JsonArray { "geosite:ru-available-only-inside" }
             },
             // TCP/UDP catch-all → proxy
             new JsonObject

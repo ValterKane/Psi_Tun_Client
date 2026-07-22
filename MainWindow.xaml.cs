@@ -38,7 +38,7 @@ public partial class MainWindow : Window
 
                 if (isError)
                 {
-                    File.WriteAllLines("error.log", new[] { line });
+                    File.AppendAllLines("error.log", new[] { line });
                 }
                 
                 var brush = isError ? ErrorBrush : isWarn ? WarnBrush : InfoBrush;

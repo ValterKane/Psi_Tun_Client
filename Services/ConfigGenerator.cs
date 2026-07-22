@@ -75,7 +75,7 @@ public static class ConfigGenerator
             // Direct DNS for server domain resolution
             new JsonObject
             {
-                ["address"] = "77.88.8.8",
+                ["address"] = "1.1.1.1",
                 ["domains"] = new JsonArray { server.Address },
                 ["skipFallback"] = true,
                 ["tag"] = "direct-dns-1"
@@ -83,7 +83,7 @@ public static class ConfigGenerator
             // Direct DNS for private geosite
             new JsonObject
             {
-                ["address"] = "77.88.8.8",
+                ["address"] = "1.1.1.1",
                 ["domains"] = new JsonArray { "geosite:private" },
                 ["skipFallback"] = true,
                 ["tag"] = "direct-dns-2"
@@ -176,6 +176,13 @@ public static class ConfigGenerator
                     ["type"] = "field",
                     ["outboundTag"] = DirectTag,
                     ["domain"] = new JsonArray { "geosite:private" }
+                },
+                // 6. Russia-only sites → direct (gosuslugi, banks, etc.)
+                new JsonObject
+                {
+                    ["type"] = "field",
+                    ["outboundTag"] = DirectTag,
+                    ["domain"] = new JsonArray { "geosite:ru-available-only-inside" }
                 },
                 // Catch-all → proxy
                 new JsonObject
