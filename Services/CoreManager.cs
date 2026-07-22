@@ -43,6 +43,8 @@ public class CoreManager : IDisposable
 
         KillStaleProcesses();
         CleanupAdapter();
+        // Give Windows time to release the adapter
+        await Task.Delay(2000);
         _errorLines.Clear();
         ExitCode = null;
 
