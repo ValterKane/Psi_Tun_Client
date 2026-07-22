@@ -102,14 +102,16 @@ public static class SingBoxConfigGenerator
             {
                 ["server"] = "77.88.8.8",
                 ["type"] = "udp",
-                ["tag"] = "yandex_dns"
+                ["tag"] = "yandex_dns",
+                ["strategy"] = "prefer_ipv4"
             },
             // direct_dns — UDP 1.1.1.1 for direct-routed domains
             new JsonObject
             {
                 ["server"] = "1.1.1.1",
                 ["type"] = "udp",
-                ["tag"] = "direct_dns"
+                ["tag"] = "direct_dns",
+                ["strategy"] = "prefer_ipv4"
             },
             // remote_dns — 8.8.8.8 through proxy (final fallback, no leaks)
             new JsonObject
@@ -133,7 +135,8 @@ public static class SingBoxConfigGenerator
                 ["server"] = "https://common.dot.dns.yandex.net/dns-query",
                 ["domain_resolver"] = "local_local",
                 ["type"] = "https",
-                ["tag"] = "yandex_doh"
+                ["tag"] = "yandex_doh",
+                ["strategy"] = "prefer_ipv4"
             },
             // direct_doh — Cloudflare DoH fallback (in pool, activate via DNS rule if UDP blocked)
             new JsonObject
@@ -141,7 +144,8 @@ public static class SingBoxConfigGenerator
                 ["server"] = "https://cloudflare-dns.com/dns-query",
                 ["domain_resolver"] = "local_local",
                 ["type"] = "https",
-                ["tag"] = "direct_doh"
+                ["tag"] = "direct_doh",
+                ["strategy"] = "prefer_ipv4"
             }
         };
 
@@ -152,6 +156,12 @@ public static class SingBoxConfigGenerator
             {
                 ["server"] = "hosts_dns",
                 ["ip_accept_any"] = true
+            },
+            // Russia-only sites → Yandex DoH (fast, direct)
+            new JsonObject
+            {
+                ["server"] = "yandex_dns",
+                ["geosite"] = new JsonArray { "ru-available-only-inside" }
             }
         };
 
