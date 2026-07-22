@@ -90,6 +90,22 @@ public class CoreManager : IDisposable
         else
             OnLog?.Invoke("[Core] sing-box may still be starting...");
 
+        // Wait for TUN adapter to appear (routes need time to apply on Win10)
+        for (int i = 0; i < 20; i++)
+        {
+            if (CheckTunAdapterExists())
+            {
+                IsTunCreated = true;
+                OnTunStatusChanged?.Invoke(true);
+                OnLog?.Invoke("[Core] TUN adapter detected");
+                break;
+            }
+            await Task.Delay(500);
+        }
+
+        if (!IsTunCreated)
+            OnLog?.Invoke("[Core] Waiting for TUN adapter...");
+
         // Start TUN monitoring (checks adapter status, retries if needed)
         _tunCts = new CancellationTokenSource();
         _ = TunMonitorLoopAsync(_tunCts.Token);
