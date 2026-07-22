@@ -72,10 +72,10 @@ public static class ConfigGenerator
 
         var servers = new JsonArray
         {
-            // Direct DNS for server domain resolution
+            // Direct DNS for server domain resolution (DoH, TCP 443 — works through TUN)
             new JsonObject
             {
-                ["address"] = "1.1.1.1",
+                ["address"] = "https://dns.google/dns-query",
                 ["domains"] = new JsonArray { server.Address },
                 ["skipFallback"] = true,
                 ["tag"] = "direct-dns-1"

@@ -202,7 +202,7 @@ public static class SingBoxConfigGenerator
         {
             ["servers"] = servers,
             ["rules"] = rules,
-            ["final"] = "direct_dns",
+            ["final"] = "remote_dns",
             ["independent_cache"] = true,
             ["strategy"] = "prefer_ipv4"
         };
