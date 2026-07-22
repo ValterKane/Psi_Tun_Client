@@ -22,9 +22,13 @@ public partial class App : Application
 
     // Services
     public static SettingsService Settings { get; private set; } = null!;
+
     public static CoreManager? Core { get; private set; }
+
     public static List<VpnServer> Servers { get; set; } = [];
+
     public static int SelectedServerIndex { get; set; }
+
     public static string ConnectionStatus { get; set; } = "Нет подключения";
 
     // UI
@@ -47,29 +51,38 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             var ex = args.ExceptionObject as Exception;
+
             File.WriteAllText(Path.Combine(BaseDir, "crash.log"),
                 $"Unhandled: {ex?.ToString() ?? args.ExceptionObject?.ToString()}");
         };
+
         DispatcherUnhandledException += (_, args) =>
         {
             File.WriteAllText(Path.Combine(BaseDir, "crash.log"),
                 $"Dispatcher: {args.Exception}");
-            // Silently ignore ItemsControl sync errors (known WPF virtualization bug)
-            if (args.Exception is InvalidOperationException ie
-                && ie.Message.Contains("ItemsControl"))
-            {
-                args.Handled = true;
-                return;
-            }
+
             MessageBox.Show(args.Exception.ToString(), "PsiTun Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+
             args.Handled = true;
         };
 
         LoadSettings();
+
         if (Settings.TunStack != "gvisor" && !IsAdministrator())
         {
-            Debug.WriteLine("WARNING: TUN system stack requires admin. Running without elevation for debugging.");
+            if (MessageBox.Show("Перезапускаю от имени администратора?", "Повышение прав приложения!", MessageBoxButton
+                    .YesNo, MessageBoxImage
+                    .Question) == MessageBoxResult.Yes)
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = Environment.ProcessPath, UseShellExecute = true, Verb = "runas"
+                });
+
+                ShutdownApp();
+                return;
+            }
         }
 
         Directory.CreateDirectory(BaseDir);
@@ -81,6 +94,7 @@ public partial class App : Application
             bootWindow.Show();
 
             var bootstrapper = new BootstrapService(BaseDir);
+
             var progress = new Progress<(string status, int pct)>(update =>
             {
                 Dispatcher.Invoke(() =>
@@ -92,6 +106,7 @@ public partial class App : Application
                 try
                 {
                     await bootstrapper.BootstrapAsync(progress);
+
                     Dispatcher.Invoke(() =>
                     {
                         bootWindow.Close();
@@ -103,6 +118,7 @@ public partial class App : Application
                     Dispatcher.Invoke(() =>
                     {
                         bootWindow.ShowError($"Download failed: {ex.Message}\nVPN won't work without Xray-core.");
+
                         Task.Delay(3000).ContinueWith(_ =>
                             Dispatcher.Invoke(() =>
                             {
@@ -113,7 +129,7 @@ public partial class App : Application
                 }
             });
 
-            return; // Don't continue — bootstrapper will call ContinueStartup()
+            return;// Don't continue — bootstrapper will call ContinueStartup()
         }
 
         ContinueStartup();
@@ -133,7 +149,6 @@ public partial class App : Application
 
     private void ContinueStartup()
     {
-
         // Setup tray
         _tray = new TrayIconManager();
         _tray.OnExit += ShutdownApp;
@@ -151,18 +166,24 @@ public partial class App : Application
         {
             // Try to load servers from last save
             var serversPath = Path.Combine(BaseDir, "servers.json");
+
             if (File.Exists(serversPath))
             {
                 try
                 {
                     Servers = JsonSerializer.Deserialize<List<VpnServer>>(
                         File.ReadAllText(serversPath)) ?? [];
+
                     SelectedServerIndex = Settings.LastServerIndex;
                 }
-                catch { /* will refresh */ }
+                catch
+                {
+                    /* will refresh */
+                }
             }
 
             _mainWindow = new MainWindow();
+
             if (!_startMinimized)
                 _mainWindow.Show();
         }
@@ -171,6 +192,7 @@ public partial class App : Application
     private void ShowFirstRun()
     {
         var firstRun = new FirstRunWindow();
+
         firstRun.OnCompleted += (servers) =>
         {
             try
@@ -205,6 +227,7 @@ public partial class App : Application
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         };
+
         firstRun.Show();
     }
 
@@ -215,6 +238,7 @@ public partial class App : Application
             _mainWindow = new MainWindow();
             _mainWindow.Closed += (_, _) => _mainWindow = null;
         }
+
         _mainWindow.Show();
         _mainWindow.Activate();
     }
@@ -239,10 +263,12 @@ public partial class App : Application
     public async Task ConnectAsync()
     {
         if (Servers.Count == 0) return;
+
         if (!File.Exists(CoreExe))
         {
             MessageBox.Show("Xray-core не найден!", "PsiTun",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+
             return;
         }
 
@@ -256,7 +282,18 @@ public partial class App : Application
         // Start cores (Xray first = SOCKS server, then sing-box = TUN)
         Core?.Dispose();
         Core = new CoreManager(CoreExe, ConfigPath, SingBoxExe, SingBoxConfigPath);
-        Core.OnLog += (line) => { try { _mainWindow?.AppendLog(line); } catch { } };
+
+        Core.OnLog += (line) =>
+        {
+            try
+            {
+                _mainWindow?.AppendLog(line);
+            }
+            catch
+            {
+                
+            }
+        };
 
         try
         {
@@ -285,8 +322,10 @@ public partial class App : Application
                 ConnectionStatus = "Ошибка подключения";
                 _tray?.UpdateStatus(false);
                 _mainWindow?.UpdateStatus(false);
+
                 MessageBox.Show($"Не удалось запустить VPN ядро.{error}", "PsiTun",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+
                 Core.Dispose();
             }
         }
@@ -294,6 +333,7 @@ public partial class App : Application
         {
             MessageBox.Show($"Ошибка запуска VPN ядра: {ex.Message}", "PsiTun",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+
             Core.Dispose();
         }
     }
@@ -336,12 +376,14 @@ public partial class App : Application
         {
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Internet Settings", writable: true);
+
             if (key == null) return;
 
             if (enable)
             {
                 key.SetValue("ProxyEnable", 1, Microsoft.Win32.RegistryValueKind.DWord);
                 key.SetValue("ProxyServer", $"127.0.0.1:{port}", Microsoft.Win32.RegistryValueKind.String);
+
                 key.SetValue("ProxyOverride", "localhost;127.*;172.16.*;192.168.*;10.*;169.254.*;<local>",
                     Microsoft.Win32.RegistryValueKind.String);
             }
@@ -350,7 +392,9 @@ public partial class App : Application
                 key.SetValue("ProxyEnable", 0, Microsoft.Win32.RegistryValueKind.DWord);
             }
         }
-        catch { }
+        catch
+        {
+        }
     }
 
     public void ShutdownApp()
