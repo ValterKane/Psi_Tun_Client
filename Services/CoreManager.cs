@@ -45,13 +45,13 @@ public class CoreManager : IDisposable
         if (IsRunning) return;
 
         KillStaleProcesses();
-        CleanupAdapter();
-        // Give Windows time to release the adapter
-        await Task.Delay(2000);
+
+        // Cleanup adapter in background while Xray starts
+        var cleanupTask = Task.Run(CleanupAdapter);
         _errorLines.Clear();
         ExitCode = null;
 
-        // 1. Start Xray first (SOCKS server must be ready for sing-box)
+        // 1. Start Xray immediately (SOCKS server for sing-box)
         _xrayProcess = StartProcess(_xrayPath, _xrayConfigPath, "xray");
         OnLog?.Invoke("[Core] Starting Xray (proxy)...");
 
@@ -73,6 +73,9 @@ public class CoreManager : IDisposable
             return;
         }
 
+        // Wait for adapter cleanup to finish before starting sing-box
+        await cleanupTask;
+
         // Retry loop: on Win10 TUN adapter creation can fail intermittently
         for (int attempt = 1; attempt <= 3; attempt++)
         {
@@ -80,14 +83,14 @@ public class CoreManager : IDisposable
             {
                 OnLog?.Invoke($"[Core] Retrying sing-box (attempt {attempt}/3)...");
                 CleanupAdapter();
-                await Task.Delay(2000);
+                await Task.Delay(1000);
             }
 
             _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
             OnLog?.Invoke($"[Core] Starting sing-box (TUN+DNS)...");
 
             // 4. Wait for sing-box HTTP port (up to 10s)
-            var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 10);
+            var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 20);
 
             // If the process already exited with an error, retry
             if (!sbReady && _singBoxProcess is { HasExited: true })

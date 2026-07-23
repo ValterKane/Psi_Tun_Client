@@ -21,18 +21,33 @@ public enum RuleAction
     Block
 }
 
+public class RuleCondition
+{
+    public RuleMatchType Type { get; set; }
+    public string Value { get; set; } = "";
+}
+
 public class RoutingRule
 {
     public string Description { get; set; } = "";
     public RuleMatchType MatchType { get; set; }
     public string Value { get; set; } = "";
     public RuleAction Action { get; set; }
-    public string? Protocol { get; set; }
-    public string? Port { get; set; }
+    private string? _network;
+    public string? Network { get => _network; set => _network = value; }
+
+    public string? AppProtocol { get; set; }
+
+    private string? _port;
+    public string? Port
+    {
+        get => _port;
+        set => _port = value;
+    }
     public bool IsEnabled { get; set; } = true;
     public bool IsDefault { get; set; }
+    public bool ForceProxy { get; set; }
 
-    // Auto-detect target core
     [JsonIgnore]
     public bool IsSingBox => MatchType is RuleMatchType.ProcessName or RuleMatchType.Protocol;
 

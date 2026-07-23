@@ -264,6 +264,15 @@ public static class SingBoxConfigGenerator
                 ["type"] = "socks",
                 ["tag"] = "proxy"
             },
+            // Force-proxy outbound → bypasses Xray blocked-only routing
+            new JsonObject
+            {
+                ["server"] = "127.0.0.1",
+                ["server_port"] = 10811,
+                ["version"] = "5",
+                ["type"] = "socks",
+                ["tag"] = "force-proxy"
+            },
             // Direct
             new JsonObject
             {
@@ -386,7 +395,9 @@ public static class SingBoxConfigGenerator
         // Action → outbound or action
         switch (rule.Action)
         {
-            case RuleAction.Proxy: obj["outbound"] = "proxy"; break;
+            case RuleAction.Proxy:
+                obj["outbound"] = rule.ForceProxy ? "force-proxy" : "proxy";
+                break;
             case RuleAction.Direct: obj["outbound"] = "direct"; break;
             case RuleAction.Block: obj["action"] = "reject"; break;
         }
@@ -406,10 +417,12 @@ public static class SingBoxConfigGenerator
         }
 
         // Optional filters
-        if (!string.IsNullOrEmpty(rule.Protocol))
-            obj["network"] = rule.Protocol.ToLowerInvariant();
+        if (!string.IsNullOrEmpty(rule.Network))
+            obj["network"] = rule.Network.ToLowerInvariant();
+        if (!string.IsNullOrEmpty(rule.AppProtocol))
+            obj["protocol"] = new JsonArray { rule.AppProtocol.ToLowerInvariant() };
         if (!string.IsNullOrEmpty(rule.Port))
-            obj["port_range"] = new JsonArray { rule.Port };
+            obj["port_range"] = new JsonArray { rule.Port.Replace('-', ':') };
 
         return obj;
     }

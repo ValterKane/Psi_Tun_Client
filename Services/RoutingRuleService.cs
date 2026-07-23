@@ -42,9 +42,9 @@ public class RoutingRuleService
     {
         return new List<RoutingRule>
         {
-            // Process name — force through proxy
-            new() { Description = "Discord через VPN", MatchType = RuleMatchType.ProcessName,
-                Value = "discord.exe", Action = RuleAction.Proxy, IsDefault = true },
+            // Force-proxy apps (bypass blocked-only for RTC/UDP)
+            new() { Description = "Discord — полный прокси", MatchType = RuleMatchType.ProcessName,
+                Value = "Discord.exe", Action = RuleAction.Proxy, ForceProxy = true, IsDefault = true },
 
             // Torrent clients → direct
             new() { Description = "qBittorrent напрямую", MatchType = RuleMatchType.ProcessName,

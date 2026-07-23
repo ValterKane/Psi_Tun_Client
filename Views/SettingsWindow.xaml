@@ -54,7 +54,6 @@
 
         <ScrollViewer Grid.Row="0" Grid.RowSpan="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <!-- TUN Adapter -->
                 <TextBlock Style="{StaticResource SectionTitle}" Text="TUN Adapter"/>
 
                 <GroupBox Header="Сеть" Margin="0,0,0,10">
@@ -74,34 +73,34 @@
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Имя адаптера:"/>
-                        <TextBox x:Name="TunName" Grid.Row="0" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Height="24"
+                                 Text="{Binding TunName, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="IPv4-адрес:"/>
-                        <TextBox x:Name="TunAddress" Grid.Row="1" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Height="24"
+                                 Text="{Binding TunAddress, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Маска подсети:"/>
-                        <TextBox x:Name="TunMask" Grid.Row="2" Grid.Column="1"
-                                 Height="24" IsReadOnly="True"
-                                 Background="#252535"
+                        <TextBox Grid.Row="2" Grid.Column="1" Height="24"
+                                 IsReadOnly="True" Background="#252535"
+                                 Text="{Binding TunMask, Mode=OneWay}"
                                  ToolTip="Авто из CIDR: /30 = 255.255.255.252"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Шлюз:"/>
-                        <TextBox x:Name="TunGateway" Grid.Row="3" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" Height="24"
+                                 Text="{Binding TunGateway, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="DNS:"/>
-                        <TextBox x:Name="TunDns" Grid.Row="4" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" Height="24"
+                                 Text="{Binding TunDns, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="MTU:"/>
-                        <TextBox x:Name="TunMtu" Grid.Row="5" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="5" Grid.Column="1" Height="24"
+                                 Text="{Binding TunMtu, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Стек:"/>
-                        <ComboBox x:Name="TunStack" Grid.Row="6" Grid.Column="1"
-                                  Height="24">
+                        <ComboBox Grid.Row="6" Grid.Column="1" Height="24"
+                                  SelectedIndex="{Binding TunStackIndex}">
                             <ComboBoxItem Content="gvisor (виртуальный, без elevation)"/>
                             <ComboBoxItem Content="system (адаптер в Windows, нужен админ)"/>
                             <ComboBoxItem Content="mixed"/>
@@ -111,18 +110,17 @@
 
                 <GroupBox Header="Опции" Margin="0,0,0,10">
                     <StackPanel Margin="8">
-                        <CheckBox x:Name="AutoRoute" Content="Auto-route (требует права админа)"
-                                  Margin="0,0,0,6"/>
-                        <CheckBox x:Name="StrictRoute" Content="Strict-route (WFP фильтры, могут мешать на WiFi)"
-                                  Margin="0,0,0,6"/>
-                        <CheckBox x:Name="Sniffing" Content="Sniffing (определение протокола)"
-                                  Margin="0,0,0,6"/>
-                        <CheckBox x:Name="UsePac" Content="PAC-прокси (системный прокси)"
-                                  Margin="0,0,0,6"/>
+                        <CheckBox Content="Auto-route (требует права админа)" Margin="0,0,0,6"
+                                  IsChecked="{Binding AutoRoute}"/>
+                        <CheckBox Content="Strict-route (WFP фильтры, могут мешать на WiFi)" Margin="0,0,0,6"
+                                  IsChecked="{Binding StrictRoute}"/>
+                        <CheckBox Content="Sniffing (определение протокола)" Margin="0,0,0,6"
+                                  IsChecked="{Binding EnableSniffing}"/>
+                        <CheckBox Content="PAC-прокси (системный прокси)" Margin="0,0,0,6"
+                                  IsChecked="{Binding UsePac}"/>
                     </StackPanel>
                 </GroupBox>
 
-                <!-- Proxy -->
                 <TextBlock Style="{StaticResource SectionTitle}" Text="Proxy"/>
 
                 <GroupBox Header="Порты" Margin="0,0,0,10">
@@ -137,26 +135,25 @@
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="HTTP:"/>
-                        <TextBox x:Name="HttpPort" Grid.Row="0" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Height="24"
+                                 Text="{Binding HttpPort, UpdateSourceTrigger=PropertyChanged}"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="SOCKS:"/>
-                        <TextBox x:Name="SocksPort" Grid.Row="1" Grid.Column="1"
-                                 Height="24"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Height="24"
+                                 Text="{Binding SocksPort, UpdateSourceTrigger=PropertyChanged}"/>
                     </Grid>
                 </GroupBox>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Buttons -->
         <StackPanel Grid.Row="2" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="Сохранить" Click="Save_Click"
+            <Button Content="Сохранить" Command="{Binding SaveCommand}"
                     Width="100" Height="30"
                     Background="#4CAF50" Foreground="White"
                     BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"
                     Margin="0,0,8,0"/>
-            <Button Content="Отмена" Click="Cancel_Click"
+            <Button Content="Отмена" Command="{Binding CancelCommand}"
                     Width="80" Height="30"
                     Background="#555565" Foreground="#E0E0E0"
                     BorderThickness="0" Cursor="Hand"/>

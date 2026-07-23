@@ -107,12 +107,33 @@ public static class ConfigGenerator
     {
         return new JsonArray
         {
+            // Main SOCKS inbound — blocked-only routing
             new JsonObject
             {
                 ["tag"] = "socks-in",
                 ["protocol"] = "socks",
                 ["listen"] = "127.0.0.1",
                 ["port"] = s.XrayInboundPort,
+                ["sniffing"] = new JsonObject
+                {
+                    ["enabled"] = true,
+                    ["destOverride"] = new JsonArray { "http", "tls" },
+                    ["routeOnly"] = false
+                },
+                ["settings"] = new JsonObject
+                {
+                    ["auth"] = "noauth",
+                    ["udp"] = true,
+                    ["allowTransparent"] = false
+                }
+            },
+            // Force-proxy SOCKS inbound — bypass blocked-only, all traffic to VPN
+            new JsonObject
+            {
+                ["tag"] = "force-in",
+                ["protocol"] = "socks",
+                ["listen"] = "127.0.0.1",
+                ["port"] = 10811,
                 ["sniffing"] = new JsonObject
                 {
                     ["enabled"] = true,
@@ -177,6 +198,13 @@ public static class ConfigGenerator
             ["outboundTag"] = DirectTag,
             ["domain"] = new JsonArray { "geosite:private" }
         });
+        // Force-proxy inbound → always proxy (bypass blocked-only for RTC/UDP)
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["inboundTag"] = new JsonArray { "force-in" },
+            ["outboundTag"] = ProxyTag
+        });
         // Catch-all → direct (blocked-only mode)
         rules.Add(new JsonObject
         {
@@ -239,10 +267,17 @@ public static class ConfigGenerator
                 return null; // ProcessName/Protocol not supported in Xray
         }
 
-        if (!string.IsNullOrEmpty(rule.Protocol))
-            obj["protocol"] = new JsonArray { rule.Protocol.ToLowerInvariant() };
+        if (!string.IsNullOrEmpty(rule.Network) || !string.IsNullOrEmpty(rule.AppProtocol))
+        {
+            var protocols = new JsonArray();
+            if (!string.IsNullOrEmpty(rule.Network))
+                protocols.Add(rule.Network.ToLowerInvariant());
+            if (!string.IsNullOrEmpty(rule.AppProtocol))
+                protocols.Add(rule.AppProtocol.ToLowerInvariant());
+            obj["protocol"] = protocols;
+        }
         if (!string.IsNullOrEmpty(rule.Port))
-            obj["port"] = rule.Port;
+            obj["port"] = rule.Port.Replace(':', '-');
 
         return obj;
     }
