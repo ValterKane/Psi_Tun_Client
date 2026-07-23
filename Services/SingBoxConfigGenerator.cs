@@ -33,7 +33,8 @@ public static class SingBoxConfigGenerator
     };
 
     public static string Generate(SettingsService settings,
-        List<VpnServer> servers, int selectedIndex)
+        List<VpnServer> servers, int selectedIndex,
+        List<RoutingRule>? customRules = null)
     {
         var server = selectedIndex < servers.Count ? servers[selectedIndex] : null;
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -51,7 +52,7 @@ public static class SingBoxConfigGenerator
             ["inbounds"] = BuildInbounds(settings),
             ["outbounds"] = BuildOutbounds(settings),
             ["endpoints"] = new JsonArray(),
-            ["route"] = BuildRouteConfig(xrayPath, cachePath, baseDir),
+            ["route"] = BuildRouteConfig(xrayPath, cachePath, baseDir, customRules),
             ["experimental"] = new JsonObject
             {
                 ["cache_file"] = new JsonObject
@@ -272,7 +273,8 @@ public static class SingBoxConfigGenerator
         };
     }
 
-    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath, string baseDir)
+    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath, string baseDir,
+        List<RoutingRule>? customRules = null)
     {
         var xrayExePath = xrayPath; // JsonSerializer handles escaping
 
@@ -305,66 +307,31 @@ public static class SingBoxConfigGenerator
                 },
                 ["action"] = "hijack-dns"
             },
-            // Реклама + Win-шпионы → reject (на уровне TUN)
-            new JsonObject
-            {
-                ["rule_set"] = new JsonArray { "geosite-category-ads-all", "geosite-win-spy" },
-                ["action"] = "reject"
-            },
-            // Discord → proxy always (before ip_is_private)
-            new JsonObject
-            {
-                ["outbound"] = "proxy",
-                ["process_name"] = new JsonArray { "discord.exe" }
-            },
-            // BitTorrent protocol → direct (DPI, catches all clients)
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["protocol"] = new JsonArray { "bittorrent" }
-            },
-            // P2P/Torrent/Steam/Launchers → direct (high-volume, no proxy needed)
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["process_name"] = new JsonArray
-                {
-                    "qbittorrent.exe", "utorrent.exe", "bittorrent.exe",
-                    "transmission.exe", "deluge.exe", "vuze.exe",
-                    "steam.exe", "steamwebhelper.exe", "steamservice.exe",
-                    "epicgameslauncher.exe", "eadesktop.exe", "origin.exe",
-                    "ubisoftconnect.exe", "battlenet.exe", "goggalaxy.exe",
-                    "rsilauncher.exe", "riotclientux.exe",
-                    "minecraftlauncher.exe", "tlauncher.exe",
-                    "warframe.x64.exe", "warframe.exe",
-                    "overwatch.exe", "destiny2.exe"
-                }
-            },
-            // Private IPs → direct
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["ip_is_private"] = true
-            },
-            // Приватные домены → direct (rule_set)
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["rule_set"] = new JsonArray { "geosite-private" }
-            },
-            // RU-only сайты → direct (не идут в VPN)
-            new JsonObject
-            {
-                ["outbound"] = "direct",
-                ["rule_set"] = new JsonArray { "geosite-ru-available-only-inside" }
-            },
-            // TCP/UDP catch-all → proxy (всё остальное в xray)
-            new JsonObject
-            {
-                ["outbound"] = "proxy",
-                ["port_range"] = new JsonArray { "0:65535" }
-            }
         };
+
+        // Insert custom process_name/protocol rules
+        if (customRules is { Count: > 0 })
+        {
+            foreach (var rule in customRules.Where(r => r.IsEnabled && r.IsSingBox))
+            {
+                var obj = ConvertToSingBoxRule(rule);
+                if (obj != null)
+                    rules.Add(obj);
+            }
+        }
+
+        // Private IPs → direct
+        rules.Add(new JsonObject
+        {
+            ["outbound"] = "direct",
+            ["ip_is_private"] = true
+        });
+        // TCP/UDP catch-all → proxy (всё остальное в xray)
+        rules.Add(new JsonObject
+        {
+            ["outbound"] = "proxy",
+            ["port_range"] = new JsonArray { "0:65535" }
+        });
 
         var route = new JsonObject
         {
@@ -410,5 +377,40 @@ public static class SingBoxConfigGenerator
         };
 
         return route;
+    }
+
+    private static JsonObject? ConvertToSingBoxRule(RoutingRule rule)
+    {
+        var obj = new JsonObject();
+
+        // Action → outbound or action
+        switch (rule.Action)
+        {
+            case RuleAction.Proxy: obj["outbound"] = "proxy"; break;
+            case RuleAction.Direct: obj["outbound"] = "direct"; break;
+            case RuleAction.Block: obj["action"] = "reject"; break;
+        }
+
+        // Match type → sing-box field
+        var val = new JsonArray { rule.Value };
+        switch (rule.MatchType)
+        {
+            case RuleMatchType.ProcessName:
+                obj["process_name"] = val;
+                break;
+            case RuleMatchType.Protocol:
+                obj["protocol"] = val;
+                break;
+            default:
+                return null; // Non-sing-box types are filtered before calling
+        }
+
+        // Optional filters
+        if (!string.IsNullOrEmpty(rule.Protocol))
+            obj["network"] = rule.Protocol.ToLowerInvariant();
+        if (!string.IsNullOrEmpty(rule.Port))
+            obj["port_range"] = new JsonArray { rule.Port };
+
+        return obj;
     }
 }

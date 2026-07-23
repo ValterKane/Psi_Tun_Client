@@ -7,6 +7,10 @@
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
 
+    <Window.Resources>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#FF2D2D30"/>
+    </Window.Resources>
+
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -158,6 +162,11 @@
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
                     <Button Content="Пинг" Command="{Binding PingCommand}"
                             Width="60" Height="24"
+                            Background="#455A64" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" FontSize="11"
+                            Margin="0,0,5,0"/>
+                    <Button Content="Rules" Click="RoutingRules_Click"
+                            Width="50" Height="24"
                             Background="#455A64" Foreground="White"
                             BorderThickness="0" Cursor="Hand" FontSize="11"
                             Margin="0,0,5,0"/>

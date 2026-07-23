@@ -64,10 +64,23 @@ jobs:
           # Xray looks in its working directory
           Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
           Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
-          # sing-box rule-sets (.srs files)
+          # sing-box rule-sets (.srs files) — keep only the 4 used by DNS rules
           $rulesZipUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/sing-box.zip"
           Invoke-WebRequest $rulesZipUrl -OutFile rules.zip
-          Expand-Archive rules.zip -DestinationPath publish/sing-box/rules -Force
+          $tmpDir = "rules-tmp"
+          Expand-Archive rules.zip -DestinationPath $tmpDir -Force
+          New-Item -ItemType Directory -Force -Path publish/sing-box/rules/rule-set-geosite
+          $needed = @(
+            "geosite-ru-available-only-inside.srs",
+            "geosite-category-ads-all.srs",
+            "geosite-win-spy.srs",
+            "geosite-private.srs"
+          )
+          foreach ($f in $needed) {
+            $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
+            if ($src) { Copy-Item $src.FullName publish/sing-box/rules/rule-set-geosite/ }
+          }
+          Remove-Item $tmpDir -Recurse -Force
           Remove-Item rules.zip
 
       - name: Package

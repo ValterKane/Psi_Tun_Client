@@ -19,9 +19,11 @@ public partial class App : Application
     public static readonly string ConfigPath = Path.Combine(BaseDir, "config.json");
     public static readonly string SingBoxConfigPath = Path.Combine(BaseDir, "sing-box-config.json");
     public static readonly string AppConfigPath = Path.Combine(BaseDir, "appsettings.json");
+    public static readonly string RulesFilePath = Path.Combine(BaseDir, "routing-rules.json");
 
     // Services
     public static SettingsService Settings { get; private set; } = null!;
+    public static RoutingRuleService Rules { get; private set; } = null!;
 
     public static CoreManager? Core { get; private set; }
 
@@ -145,6 +147,7 @@ public partial class App : Application
     private static void LoadSettings()
     {
         Settings = SettingsService.Load(AppConfigPath);
+        Rules = new RoutingRuleService(RulesFilePath);
     }
 
     private void ContinueStartup()
@@ -272,11 +275,16 @@ public partial class App : Application
             return;
         }
 
+        // Load custom routing rules
+        var customRules = Rules.Load();
+
         // Generate configs
-        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex);
+        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex,
+            customRules: customRules);
         await File.WriteAllTextAsync(ConfigPath, config);
 
-        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex);
+        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex,
+            customRules: customRules);
         await File.WriteAllTextAsync(SingBoxConfigPath, singBoxConfig);
 
         // Start cores (Xray first = SOCKS server, then sing-box = TUN)

@@ -88,4 +88,10 @@ public partial class MainWindow : Window
     }
 
     private void Window_Closing(object sender, CancelEventArgs e) { e.Cancel = true; Hide(); }
+
+    private void RoutingRules_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new Views.RoutingRulesWindow { Owner = this };
+        window.ShowDialog();
+    }
 }

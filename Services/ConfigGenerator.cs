@@ -35,7 +35,8 @@ public static class ConfigGenerator
     };
 
     public static string Generate(List<VpnServer> servers,
-        int selectedIndex = 0, SettingsService? settings = null)
+        int selectedIndex = 0, SettingsService? settings = null,
+        List<RoutingRule>? customRules = null)
     {
         settings ??= App.Settings;
 
@@ -53,7 +54,7 @@ public static class ConfigGenerator
                 new JsonObject { ["tag"] = DirectTag, ["protocol"] = "freedom" },
                 new JsonObject { ["tag"] = BlockTag, ["protocol"] = "blackhole" }
             },
-            ["routing"] = BuildRoutingConfig()
+            ["routing"] = BuildRoutingConfig(customRules)
         };
 
         return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
@@ -128,92 +129,122 @@ public static class ConfigGenerator
         };
     }
 
-    private static JsonObject BuildRoutingConfig()
+    private static JsonObject BuildRoutingConfig(List<RoutingRule>? customRules = null)
     {
+        var rules = new JsonArray
+        {
+            // 1. Block ads + Win telemetry
+            new JsonObject
+            {
+                ["type"] = "field",
+                ["outboundTag"] = BlockTag,
+                ["domain"] = new JsonArray { "geosite:category-ads-all", "geosite:win-spy" }
+            },
+        };
+
+        // Insert custom domain/ip/geosite rules
+        if (customRules is { Count: > 0 })
+        {
+            foreach (var rule in customRules.Where(r => r.IsEnabled && r.IsXray))
+            {
+                var obj = ConvertToXrayRule(rule);
+                if (obj != null)
+                    rules.Add(obj);
+            }
+        }
+
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = ProxyTag,
+            ["domain"] = new JsonArray { "geosite:ru-blocked" }
+        });
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = ProxyTag,
+            ["domain"] = new JsonArray { "geosite:ru-blocked-all" }
+        });
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = DirectTag,
+            ["ip"] = new JsonArray { "geoip:private" }
+        });
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = DirectTag,
+            ["domain"] = new JsonArray { "geosite:private" }
+        });
+        // Catch-all → direct (blocked-only mode)
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["port"] = "0-65535",
+            ["outboundTag"] = DirectTag
+        });
+        // DNS direct tags → direct outbound
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["inboundTag"] = new JsonArray { "direct-dns-1", "direct-dns-2" },
+            ["outboundTag"] = DirectTag
+        });
+        // DNS module → proxy
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["inboundTag"] = new JsonArray { "dns-module" },
+            ["outboundTag"] = ProxyTag
+        });
+
         return new JsonObject
         {
             ["domainStrategy"] = "AsIs",
-            ["rules"] = new JsonArray
+            ["rules"] = rules
+        };
+    }
+
+    private static JsonObject? ConvertToXrayRule(RoutingRule rule)
+    {
+        var obj = new JsonObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = rule.Action switch
             {
-                // 1. Block ads + Win telemetry
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = BlockTag,
-                    ["domain"] = new JsonArray { "geosite:category-ads-all", "geosite:win-spy" }
-                },
-                // 2. RU-blocked → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = ProxyTag,
-                    ["domain"] = new JsonArray { "geosite:ru-blocked" }
-                },
-                // 3. RU-blocked-all → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = ProxyTag,
-                    ["domain"] = new JsonArray { "geosite:ru-blocked-all" }
-                },
-                // 4. Win Update → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = ProxyTag,
-                    ["domain"] = new JsonArray { "geosite:win-update" }
-                },
-                // 4. Win Update → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = BlockTag,
-                    ["domain"] = new JsonArray { "geosite:win-spy" }
-                },
-                // 5. Private IPs → direct
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = DirectTag,
-                    ["ip"] = new JsonArray { "geoip:private" }
-                },
-                // Private geosite → direct
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = DirectTag,
-                    ["domain"] = new JsonArray { "geosite:private" }
-                },
-                // 6. Russia-only sites → direct (gosuslugi, banks, etc.)
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = DirectTag,
-                    ["domain"] = new JsonArray { "geosite:ru-available-only-inside" }
-                },
-                // Catch-all → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["port"] = "0-65535",
-                    ["outboundTag"] = ProxyTag
-                },
-                // DNS direct tags → direct outbound
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["inboundTag"] = new JsonArray { "direct-dns-1", "direct-dns-2" },
-                    ["outboundTag"] = DirectTag
-                },
-                // DNS module → proxy
-                new JsonObject
-                {
-                    ["type"] = "field",
-                    ["inboundTag"] = new JsonArray { "dns-module" },
-                    ["outboundTag"] = ProxyTag
-                }
+                RuleAction.Proxy => ProxyTag,
+                RuleAction.Direct => DirectTag,
+                RuleAction.Block => BlockTag,
+                _ => ProxyTag
             }
         };
+
+        var val = new JsonArray { rule.Value };
+        switch (rule.MatchType)
+        {
+            case RuleMatchType.Domain:
+            case RuleMatchType.DomainSuffix:
+            case RuleMatchType.DomainKeyword:
+            case RuleMatchType.DomainRegex:
+                obj["domain"] = val;
+                break;
+            case RuleMatchType.Geosite:
+                obj["domain"] = new JsonArray { $"geosite:{rule.Value}" };
+                break;
+            case RuleMatchType.IpCidr:
+                obj["ip"] = val;
+                break;
+            default:
+                return null; // ProcessName/Protocol not supported in Xray
+        }
+
+        if (!string.IsNullOrEmpty(rule.Protocol))
+            obj["protocol"] = new JsonArray { rule.Protocol.ToLowerInvariant() };
+        if (!string.IsNullOrEmpty(rule.Port))
+            obj["port"] = rule.Port;
+
+        return obj;
     }
 
     private static JsonObject BuildServerOutbound(VpnServer s)
