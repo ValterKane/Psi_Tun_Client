@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -18,6 +19,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        var version = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion
+            ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
+            ?? "0.1.0";
+        Title = $"PsiTun {version}";
+
         _vm = new MainViewModel();
         DataContext = _vm;
 

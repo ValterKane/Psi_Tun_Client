@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 
 namespace PsiTun.Services;
 
@@ -46,8 +46,14 @@ public class CoreManager : IDisposable
 
         KillStaleProcesses();
 
-        // Cleanup adapter in background while Xray starts
-        var cleanupTask = Task.Run(CleanupAdapter);
+        // Wait for ports to be released after killing stale processes
+        await WaitForPortReleaseAsync(App.Settings.XrayInboundPort, App.Settings.HttpPort);
+
+        // Start adapter cleanup in background (runs in parallel with Xray)
+        var cleanupTask = CheckTunAdapterExists()
+            ? CleanupAdapterAsync()
+            : Task.CompletedTask;
+
         _errorLines.Clear();
         ExitCode = null;
 
@@ -77,20 +83,23 @@ public class CoreManager : IDisposable
         await cleanupTask;
 
         // Retry loop: on Win10 TUN adapter creation can fail intermittently
-        for (int attempt = 1; attempt <= 3; attempt++)
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
             if (attempt > 1)
             {
                 OnLog?.Invoke($"[Core] Retrying sing-box (attempt {attempt}/3)...");
-                CleanupAdapter();
+                await CleanupAdapterAsync();
                 await Task.Delay(1000);
             }
 
             _singBoxProcess = StartProcess(_singBoxPath, _singBoxConfigPath, "sing-box");
             OnLog?.Invoke($"[Core] Starting sing-box (TUN+DNS)...");
 
-            // 4. Wait for sing-box HTTP port (up to 10s)
-            var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 20);
+            // Adaptive warmup: longer initial delay on retries (slow systems need more time)
+            var warmupMs = attempt switch { 1 => 500, 2 => 1500, _ => 3000 };
+
+            // 4. Wait for sing-box port (up to ~15s with progressive backoff)
+            var sbReady = await WaitForPortAsync(App.Settings.HttpPort, 20, warmupMs);
 
             // If the process already exited with an error, retry
             if (!sbReady && _singBoxProcess is { HasExited: true })
@@ -109,9 +118,35 @@ public class CoreManager : IDisposable
                 return;
             }
 
-            // Port not ready but process still running — might just be slow
-            OnLog?.Invoke("[Core] sing-box may still be starting...");
-            return;
+            // Port not ready but process still alive — give it one more wait window
+            if (_singBoxProcess is { HasExited: false })
+            {
+                OnLog?.Invoke("[Core] sing-box still initializing, waiting longer...");
+                sbReady = await WaitForPortAsync(App.Settings.HttpPort, 20, 0);
+                if (sbReady)
+                {
+                    OnLog?.Invoke("[Core] sing-box ready");
+                    OnTunStatusChanged?.Invoke(true);
+                    return;
+                }
+            }
+
+            // Still not ready on last attempt — don't kill, let it run if alive
+            if (attempt == 3)
+            {
+                if (_singBoxProcess is { HasExited: false })
+                {
+                    OnLog?.Invoke("[Core] sing-box still alive after timeout, continuing...");
+                    OnTunStatusChanged?.Invoke(true);
+                    return;
+                }
+                break;
+            }
+
+            OnLog?.Invoke("[Core] sing-box timeout, will retry");
+            try { if (!_singBoxProcess!.HasExited) _singBoxProcess.Kill(true); } catch { }
+            _singBoxProcess.Dispose();
+            _singBoxProcess = null;
         }
 
         OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
@@ -173,37 +208,26 @@ public class CoreManager : IDisposable
         return process;
     }
 
-    private static async Task<bool> WaitForPortAsync(int port, int maxAttempts)
+    private static async Task<bool> WaitForPortAsync(int port, int maxAttempts, int initialDelayMs = 500)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        if (initialDelayMs > 0)
+            await Task.Delay(initialDelayMs);
+
         for (int i = 0; i < maxAttempts; i++)
         {
-            await Task.Delay(500);
+            // Progressive backoff: first 10 attempts 500ms, next 10 1000ms, rest 1500ms
+            var delay = i < 10 ? 500 : i < 20 ? 1000 : 1500;
+            await Task.Delay(delay);
             try
             {
-                var response = await client.GetAsync(
-                    $"http://127.0.0.1:{port}/",
-                    HttpCompletionOption.ResponseHeadersRead);
+                using var tcp = new TcpClient();
+                await tcp.ConnectAsync("127.0.0.1", port);
                 return true;
             }
             catch { /* port not ready yet */ }
         }
         return false;
     }
-
-    public async Task<bool> HealthCheckAsync(int port = 0, int timeoutMs = 3000)
-    {
-        var checkPort = port > 0 ? port : App.Settings.HttpPort;
-        try
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
-            await client.GetAsync($"http://127.0.0.1:{checkPort}/",
-                HttpCompletionOption.ResponseHeadersRead);
-            return true;
-        }
-        catch { return false; }
-    }
-
     // ── Stop ──
 
     public void Stop()
@@ -248,21 +272,45 @@ public class CoreManager : IDisposable
         catch { /* best effort */ }
     }
 
-    private static void CleanupAdapter()
+    private static async Task WaitForPortReleaseAsync(params int[] ports)
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            await Task.Delay(200);
+            var allFree = true;
+            foreach (var port in ports)
+            {
+                try
+                {
+                    using var tcp = new TcpClient();
+                    await tcp.ConnectAsync("127.0.0.1", port);
+                    allFree = false; // port still in use
+                    break;
+                }
+                catch { /* port is free */ }
+            }
+            if (allFree) return;
+        }
+    }
+
+    private static async Task CleanupAdapterAsync()
     {
         try
         {
-            var psi = new ProcessStartInfo
+            await Task.Run(() =>
             {
-                FileName = "powershell",
-                Arguments = "-NoProfile -Command \"Get-NetAdapter -Name 'singbox_tun' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-            var p = Process.Start(psi);
-            p?.WaitForExit(5000);
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell",
+                    Arguments = "-NoProfile -Command \"Get-NetAdapter -Name 'singbox_tun' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(5000);
+            });
         }
         catch { }
     }

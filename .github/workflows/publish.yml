@@ -20,8 +20,15 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+
       - name: Publish self-contained
-        run: dotnet publish PsiTun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+        run: dotnet publish PsiTun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:InformationalVersion=${{ env.VERSION }} -o publish
 
       - name: Prepare directories
         shell: pwsh
