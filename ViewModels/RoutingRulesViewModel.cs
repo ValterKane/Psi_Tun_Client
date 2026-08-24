@@ -11,6 +11,7 @@ namespace PsiTun.ViewModels;
 public class RoutingRulesViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<RoutingRule> Rules { get; } = [];
+    public ObservableCollection<RoutingRule> AutoRules { get; } = [];
 
     public static IReadOnlyList<RuleMatchType> MatchTypes { get; } = Enum.GetValues<RuleMatchType>();
     public static IReadOnlyList<string?> NetworkValues { get; } = [null, "tcp", "udp"];
@@ -25,6 +26,7 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
 
     public ICommand MoveUpCommand { get; }
     public ICommand MoveDownCommand { get; }
+    public ICommand DeleteAutoRuleCommand { get; }
 
     public RoutingRulesViewModel()
     {
@@ -34,6 +36,7 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
         MoveDownCommand = new RelayCommand(_ => MoveRule(_ as RoutingRule, 1));
         SaveCommand = new RelayCommand(async _ => await Save());
         ResetDefaultsCommand = new RelayCommand(_ => ResetDefaults());
+        DeleteAutoRuleCommand = new RelayCommand(_ => DeleteAutoRule(_ as RoutingRule));
 
         LoadRules();
     }
@@ -41,8 +44,22 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
     private void LoadRules()
     {
         Rules.Clear();
+        AutoRules.Clear();
         foreach (var r in App.Rules.Load())
-            Rules.Add(r);
+        {
+            if (r.IsAutoLearned) AutoRules.Add(r);
+            else Rules.Add(r);
+        }
+    }
+
+    private void DeleteAutoRule(RoutingRule? rule)
+    {
+        if (rule == null) return;
+        var rules = App.Rules.Load();
+        rules.RemoveAll(r => r.IsAutoLearned && r.MatchType == rule.MatchType && r.Value == rule.Value);
+        App.Rules.Save(rules);
+        AutoRules.Remove(rule);
+        _ = App.CurrentApp().ReloadXrayAsync();
     }
 
     private void AddRule()

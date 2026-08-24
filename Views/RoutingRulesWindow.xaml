@@ -64,10 +64,12 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <DataGrid x:Name="RulesGrid" Grid.Row="0" Margin="0,0,0,10"
-                  ItemsSource="{Binding Rules}"
-                  AlternationCount="2" CanUserResizeRows="False"
-                  RowHeight="32">
+        <TabControl Grid.Row="0" Margin="0,0,0,10" Background="#252535"
+                    Foreground="#E0E0E0" BorderThickness="0">
+            <TabItem Header="Правила" Foreground="#E0E0E0">
+                <DataGrid x:Name="RulesGrid" Margin="8" AlternationCount="2"
+                          CanUserResizeRows="False" RowHeight="32"
+                          ItemsSource="{Binding Rules}">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="Вкл"
                     Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
@@ -126,14 +128,39 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
             </DataGrid.Columns>
-        </DataGrid>
+                </DataGrid>
+            </TabItem>
+            <TabItem Header="Авто-прокси" Foreground="#E0E0E0">
+                <DataGrid x:Name="AutoGrid" Margin="8" AlternationCount="2"
+                          CanUserResizeRows="False" RowHeight="32"
+                          ItemsSource="{Binding AutoRules}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Хост" Binding="{Binding Value}" Width="*"/>
+                        <DataGridTextColumn Header="Проверен"
+                            Binding="{Binding LastCheckedAt, StringFormat=yyyy-MM-dd HH:mm, TargetNullValue=''}"
+                            Width="140"/>
+                        <DataGridTemplateColumn Header="" Width="60">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="✕" Width="24" Height="24"
+                                            Background="Transparent" Foreground="#F44336"
+                                            BorderThickness="0" FontSize="14" FontWeight="Bold"
+                                            Command="{Binding DataContext.DeleteAutoRuleCommand, Source={x:Reference window}}"
+                                            CommandParameter="{Binding}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="+ Добавить" Style="{StaticResource ActionButton}"
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+            <Button Content="+ Добавить" Style="{StaticResource ActionButton}" Height="30"
                     Background="#5C6BC0" Command="{Binding AddRuleCommand}" Margin="0,0,8,0"/>
-            <Button Content="Сбросить" Style="{StaticResource ActionButton}"
+            <Button Content="Сбросить" Style="{StaticResource ActionButton}" Height="30"
                     Background="#455A64" Command="{Binding ResetDefaultsCommand}" Margin="0,0,8,0"/>
-            <Button Content="Сохранить" Style="{StaticResource ActionButton}"
+            <Button Content="Сохранить" Style="{StaticResource ActionButton}" Height="30"
                     Background="#43A047" Command="{Binding SaveCommand}"/>
         </StackPanel>
     </Grid>
