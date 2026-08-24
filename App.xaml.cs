@@ -49,6 +49,21 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Ранний выход для самопроверки (exit 0 = ok, иначе selfcheck.log)
+        if (e.Args.Contains("--selfcheck"))
+        {
+            try
+            {
+                AutoProxyClassifier.SelfCheck();
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.Combine(BaseDir, "selfcheck.log"), ex.ToString());
+                Environment.Exit(1);
+            }
+        }
+
         // Global exception handlers for debugging
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {

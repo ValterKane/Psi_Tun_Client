@@ -46,6 +46,8 @@ public class RoutingRule
     }
     public bool IsEnabled { get; set; } = true;
     public bool IsDefault { get; set; }
+    public bool IsAutoLearned { get; set; }      // найдено модулем авто-прокси
+    public DateTime? LastCheckedAt { get; set; } // для TTL-перепроверки
     public bool ForceProxy { get; set; }
 
     [JsonIgnore]
