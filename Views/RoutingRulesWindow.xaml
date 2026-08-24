@@ -66,7 +66,7 @@
 
         <TabControl Grid.Row="0" Margin="0,0,0,10" Background="#252535"
                     Foreground="#E0E0E0" BorderThickness="0">
-            <TabItem Header="Правила" Foreground="#E0E0E0">
+            <TabItem Header="Правила" Foreground="Black">
                 <DataGrid x:Name="RulesGrid" Margin="8" AlternationCount="2"
                           CanUserResizeRows="False" RowHeight="32"
                           ItemsSource="{Binding Rules}">
@@ -130,7 +130,7 @@
             </DataGrid.Columns>
                 </DataGrid>
             </TabItem>
-            <TabItem Header="Авто-прокси" Foreground="#E0E0E0">
+            <TabItem Header="Авто-прокси" Foreground="Black">
                 <DataGrid x:Name="AutoGrid" Margin="8" AlternationCount="2"
                           CanUserResizeRows="False" RowHeight="32"
                           ItemsSource="{Binding AutoRules}">

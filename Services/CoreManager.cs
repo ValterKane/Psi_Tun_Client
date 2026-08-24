@@ -223,7 +223,15 @@ public class CoreManager : IDisposable
 
         process.ErrorDataReceived += (_, e) =>
         {
-            if (!string.IsNullOrEmpty(e.Data))
+            if (string.IsNullOrEmpty(e.Data)) return;
+            if (tag == "sing-box")
+            {
+                // sing-box пишет ВСЕ логи (включая INFO) в stderr — уровень уже в строке.
+                if (e.Data.Contains("ERROR") || e.Data.Contains("FATAL"))
+                    _errorLines.Add(e.Data);
+                try { OnLog?.Invoke($"[{tag}] {e.Data}"); } catch { }
+            }
+            else
             {
                 _errorLines.Add(e.Data);
                 try { OnLog?.Invoke($"[{tag}:ERR] {e.Data}"); } catch { }
