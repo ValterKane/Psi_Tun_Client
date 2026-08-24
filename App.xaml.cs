@@ -279,6 +279,23 @@ public partial class App : Application
         }
     }
 
+    // Общая генерация обоих конфигов (переиспользуется ConnectAsync и ReloadXrayAsync)
+    private async Task WriteConfigsAsync()
+    {
+        var customRules = Rules.Load();
+        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex, customRules: customRules);
+        await File.WriteAllTextAsync(ConfigPath, config);
+        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex, customRules: customRules);
+        await File.WriteAllTextAsync(SingBoxConfigPath, singBoxConfig);
+    }
+
+    public async Task<bool> ReloadXrayAsync()
+    {
+        if (Core is not { IsRunning: true }) return false;
+        await WriteConfigsAsync();
+        return await Core.RestartXrayAsync();
+    }
+
     public async Task ConnectAsync()
     {
         if (Servers.Count == 0) return;
@@ -291,17 +308,7 @@ public partial class App : Application
             return;
         }
 
-        // Load custom routing rules
-        var customRules = Rules.Load();
-
-        // Generate configs
-        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex,
-            customRules: customRules);
-        await File.WriteAllTextAsync(ConfigPath, config);
-
-        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex,
-            customRules: customRules);
-        await File.WriteAllTextAsync(SingBoxConfigPath, singBoxConfig);
+        await WriteConfigsAsync();
 
         // Start cores (Xray first = SOCKS server, then sing-box = TUN)
         Core?.Dispose();
