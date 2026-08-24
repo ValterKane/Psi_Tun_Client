@@ -38,6 +38,7 @@ public partial class App : Application
     private TrayIconManager? _tray;
     private MainWindow? _mainWindow;
     private readonly bool _startMinimized;
+    private AutoProxyEngine? _autoProxy;
 
     public App()
     {
@@ -346,6 +347,10 @@ public partial class App : Application
                 _mainWindow?.UpdateStatus(true, Servers[SelectedServerIndex].Name);
                 Settings.LastServerIndex = SelectedServerIndex;
                 Settings.Save(AppConfigPath);
+
+                _autoProxy?.Dispose();
+                _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
+                _autoProxy.Start();
             }
             else
             {
@@ -382,6 +387,8 @@ public partial class App : Application
         Core?.Stop();
         Core?.Dispose();
         Core = null;
+        _autoProxy?.Dispose();
+        _autoProxy = null;
         ConnectionStatus = "Нет подключения";
         _tray?.UpdateStatus(false);
         _mainWindow?.UpdateStatus(false);
