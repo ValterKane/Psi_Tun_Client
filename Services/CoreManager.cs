@@ -152,6 +152,42 @@ public class CoreManager : IDisposable
         OnLog?.Invoke("[Core] sing-box failed to start after 3 attempts");
     }
 
+    // Hot-reload xray: валидация → стоп → старт → ждём порт. sing-box не трогаем.
+    public async Task<bool> RestartXrayAsync()
+    {
+        if (!ValidateXrayConfig(_xrayConfigPath))
+        {
+            OnLog?.Invoke("[Core] xray config invalid, reload aborted (old config still running)");
+            return false;
+        }
+        StopXray();
+        await WaitForPortReleaseAsync(App.Settings.XrayInboundPort);
+        _xrayProcess = StartProcess(_xrayPath, _xrayConfigPath, "xray");
+        var ready = await WaitForPortAsync(App.Settings.XrayInboundPort, 10);
+        OnLog?.Invoke(ready ? "[Core] xray reloaded" : "[Core] xray failed to reload");
+        return ready;
+    }
+
+    private bool ValidateXrayConfig(string path)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = _xrayPath,
+                Arguments = $"-test -c \"{path}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using var p = Process.Start(psi);
+            p?.WaitForExit(10000);
+            return p is { ExitCode: 0 };
+        }
+        catch { return false; }
+    }
+
     public static bool CheckTunAdapterExists()
     {
         try
