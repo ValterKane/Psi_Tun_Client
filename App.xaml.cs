@@ -55,6 +55,7 @@ public partial class App : Application
             try
             {
                 AutoProxyClassifier.SelfCheck();
+                CandidateCollector.SelfCheck();
                 Environment.Exit(0);
             }
             catch (Exception ex)
