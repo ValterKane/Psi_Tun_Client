@@ -108,7 +108,7 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
 
     private async Task Save()
     {
-        App.Rules.Save(Rules.ToList());
+        App.Rules.Save(Rules.Concat(AutoRules).ToList());
 
         if (App.Core?.IsRunning == true)
         {
