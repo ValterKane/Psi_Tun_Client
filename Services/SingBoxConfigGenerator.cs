@@ -13,7 +13,7 @@ namespace PsiTun.Services;
 /// </summary>
 public static class SingBoxConfigGenerator
 {
-    private static readonly Dictionary<string, string[]> DnsHosts = new()
+    internal static readonly Dictionary<string, string[]> DnsHosts = new()
     {
         ["common.dot.dns.yandex.net"] = ["77.88.8.8", "77.88.8.1"],
         ["dns.google"] = ["8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"],
@@ -45,7 +45,7 @@ public static class SingBoxConfigGenerator
         {
             ["log"] = new JsonObject
             {
-                ["level"] = "warn",
+                ["level"] = "info",
                 ["timestamp"] = true
             },
             ["dns"] = BuildDnsConfig(server),
