@@ -130,13 +130,12 @@ public static class SingBoxConfigGenerator
                 ["type"] = "https",
                 ["tag"] = "direct_doh"
             },
-            // remote_dns — 8.8.8.8 через VPN (force-proxy, минует blocked-only у Xray),
-            // чтобы заблокированные домены получали настоящие IP, а не подмену цензурного DNS
+            // remote_dns — DoH 1.1.1.1 через VPN (force-proxy): DNS заблокированных доменов
+            // зашифрован end-to-end (клиент → Cloudflare), сервер не ходит к резолверу открытым UDP
             new JsonObject
             {
-                ["server"] = "8.8.8.8",
-                ["domain_resolver"] = "local_local",
-                ["type"] = "udp",
+                ["server"] = "1.1.1.1",
+                ["type"] = "https",
                 ["tag"] = "remote_dns",
                 ["detour"] = "force-proxy"
             },
