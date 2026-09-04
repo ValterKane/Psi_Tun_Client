@@ -79,6 +79,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path publish/sing-box/rules/rule-set-geosite
           $needed = @(
             "geosite-ru-available-only-inside.srs",
+            "geosite-ru-blocked.srs",
+            "geosite-ru-blocked-all.srs",
             "geosite-category-ads-all.srs",
             "geosite-win-spy.srs",
             "geosite-private.srs"
