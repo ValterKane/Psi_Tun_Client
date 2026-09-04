@@ -16,7 +16,6 @@ public class MainViewModel : INotifyPropertyChanged
 {
     private readonly ConcurrentQueue<string> _logQueue = new();
     private readonly DispatcherTimer _logTimer;
-    private bool _subscriptionPlaceholder = true;
 
     public ObservableCollection<ServerListItem> Servers { get; } = [];
     public event Action<string>? LogAppended;
@@ -60,6 +59,13 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _autoConnect;
     public bool AutoConnect { get => _autoConnect; set { _autoConnect = value; App.Settings.AutoConnect = value; OnPropertyChanged(); } }
 
+    private bool _autoProxyEnabled;
+    public bool AutoProxyEnabled
+    {
+        get => _autoProxyEnabled;
+        set { _autoProxyEnabled = value; App.CurrentApp().SetAutoProxyEnabled(value); OnPropertyChanged(); }
+    }
+
     private bool _autoScroll = true;
     public bool AutoScroll { get => _autoScroll; set => _autoScroll = value; }
 
@@ -87,10 +93,10 @@ public class MainViewModel : INotifyPropertyChanged
         _logTimer.Start();
 
         // Load settings
-        _subscriptionPlaceholder = string.IsNullOrEmpty(App.Settings.SubscriptionUrl);
         SubscriptionUrl = App.Settings.SubscriptionUrl;
         AutoStart = App.Settings.AutoStart;
         AutoConnect = App.Settings.AutoConnect;
+        _autoProxyEnabled = App.Settings.AutoProxyEnabled;
     }
 
     public void AppendLog(string line) => _logQueue.Enqueue(line);
@@ -179,22 +185,32 @@ public class MainViewModel : INotifyPropertyChanged
         IsPinging = false;
     }
 
+    /// <summary>
+    /// Applies a config source: a subscription URL, a direct share link, or a
+    /// string decoded from a QR image. Stored for later refresh/reuse.
+    /// </summary>
+    public async Task ImportSourceAsync(string source)
+    {
+        SubscriptionUrl = source;
+        await RefreshSubscription();
+    }
+
     private async Task RefreshSubscription()
     {
         if (string.IsNullOrWhiteSpace(App.Settings.SubscriptionUrl))
         {
-            MessageBox.Show("Введите URL подписки.", "PsiTun",
+            MessageBox.Show("Введите URL подписки или vless://-ссылку.", "PsiTun",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
         try
         {
-            var servers = await SubscriptionParser.ParseAsync(App.Settings.SubscriptionUrl);
+            var servers = await SubscriptionParser.ParseInputAsync(App.Settings.SubscriptionUrl);
 
             if (servers.Count == 0)
             {
-                MessageBox.Show("Не удалось найти сервера в подписке.", "PsiTun",
+                MessageBox.Show("Не удалось найти сервера. Проверьте ссылку.", "PsiTun",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -209,6 +225,7 @@ public class MainViewModel : INotifyPropertyChanged
                 System.Text.Json.JsonSerializer.Serialize(servers));
 
             RefreshServerList();
+            AppendLog($"[config] импортировано серверов: {servers.Count}");
         }
         catch (Exception ex)
         {

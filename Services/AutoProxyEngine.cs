@@ -11,8 +11,27 @@ public sealed class AutoProxyEngine : IDisposable
     private readonly ConcurrentDictionary<string, int> _goodStreak = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private readonly object _reloadLock = new();
+    private bool _reloadPending;
 
     public Action<string>? Log { get; set; }
+
+    // Перезагрузка xray дебаунсится: серия learn/heal в коротком окне = один рестарт,
+    // чтобы активные сессии не рвались на каждый выученный хост.
+    private void ScheduleReload()
+    {
+        lock (_reloadLock)
+        {
+            if (_reloadPending) return;
+            _reloadPending = true;
+        }
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1200);
+            lock (_reloadLock) _reloadPending = false;
+            try { await App.CurrentApp().ReloadXrayAsync(); } catch { }
+        });
+    }
 
     public void Start()
     {
@@ -86,7 +105,7 @@ public sealed class AutoProxyEngine : IDisposable
                 rules.Remove(auto);
                 App.Rules.Save(rules);
                 Log?.Invoke($"[auto] healed, moved back to direct: {auto.Value}");
-                _ = App.CurrentApp().ReloadXrayAsync();
+                ScheduleReload();
                 return;
             }
         }
@@ -123,7 +142,7 @@ public sealed class AutoProxyEngine : IDisposable
             rules.Add(existing);
             Log?.Invoke($"[auto] learned: {host}");
             App.Rules.Save(rules);
-            _ = App.CurrentApp().ReloadXrayAsync();
+            ScheduleReload();
         }
         else
         {

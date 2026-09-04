@@ -4,6 +4,8 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
+using Microsoft.Win32;
+using PsiTun.Services;
 using PsiTun.ViewModels;
 
 namespace PsiTun;
@@ -11,7 +13,6 @@ namespace PsiTun;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
-    private bool _subscriptionPlaceholder = true;
     private static readonly SolidColorBrush ErrorBrush = new(Color.FromRgb(0xC6, 0x28, 0x28));
     private static readonly SolidColorBrush WarnBrush = new(Color.FromRgb(0xFF, 0x98, 0x00));
     private static readonly SolidColorBrush InfoBrush = new(Color.FromRgb(0x90, 0xA4, 0xAE));
@@ -29,9 +30,6 @@ public partial class MainWindow : Window
 
         _vm = new MainViewModel();
         DataContext = _vm;
-
-        if (!string.IsNullOrEmpty(App.Settings.SubscriptionUrl))
-            _subscriptionPlaceholder = false;
 
         _vm.RefreshServerList();
 
@@ -80,14 +78,80 @@ public partial class MainWindow : Window
             : new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36));
     }
 
-    private void SubscriptionBox_GotFocus(object sender, RoutedEventArgs e)
+    private async void QrFromClipboard_Click(object sender, RoutedEventArgs e)
     {
-        if (_subscriptionPlaceholder) { SubscriptionBox.Text = ""; _subscriptionPlaceholder = false; }
+        string? source;
+        try
+        {
+            source = QrCodeService.ReadFromClipboard();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось прочитать буфер обмена: {ex.Message}", "PsiTun",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            MessageBox.Show("В буфере обмена нет ссылки или QR-кода.", "PsiTun",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        await ImportSourceAsync(source);
     }
 
-    private void SubscriptionBox_LostFocus(object sender, RoutedEventArgs e)
+    private async void QrFromFile_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(SubscriptionBox.Text)) { SubscriptionBox.Text = "URL подписки..."; _subscriptionPlaceholder = true; }
+        var dialog = new OpenFileDialog
+        {
+            Title = "Выберите QR-код с конфигом",
+            Filter = "Изображения (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp|Все файлы (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog(this) != true) return;
+
+        string? source;
+        try
+        {
+            source = QrCodeService.DecodeFile(dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось открыть файл: {ex.Message}", "PsiTun",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            MessageBox.Show("QR-код не распознан. Проверьте изображение.", "PsiTun",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        await ImportSourceAsync(source);
+    }
+
+    private async void PasteLink_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SourceWindow { Owner = this };
+        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+            await ImportSourceAsync(dialog.InputText);
+    }
+
+    private async Task ImportSourceAsync(string source)
+    {
+        try
+        {
+            await _vm.ImportSourceAsync(source);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ошибка импорта: {ex.Message}", "PsiTun",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void ServerRadio_Checked(object sender, RoutedEventArgs e)

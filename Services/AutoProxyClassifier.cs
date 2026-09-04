@@ -8,7 +8,7 @@ public static class AutoProxyClassifier
 {
     public const int TimeoutMs = 5000;
     public const double SlowRatioMin = 3.0;          // рандом [3, 4)
-    public const int LearnAfterBad = 2;
+    public const int LearnAfterBad = 3;
     public const int RevertAfterGood = 3;
     public static readonly TimeSpan Ttl = TimeSpan.FromHours(24);
     public static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(5);

@@ -62,29 +62,47 @@
             </Grid>
         </Border>
 
-        <!-- Subscription row -->
+        <!-- Config import row (source URL/link is never shown in plaintext) -->
         <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
-                CornerRadius="6" Padding="10" Margin="0 0 0 10">
+                CornerRadius="6" Padding="10,6" Margin="0 0 0 10">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBox x:Name="SubscriptionBox"
-                         Foreground="{StaticResource TextBrush}"
-                         CaretBrush="{StaticResource TextBrush}"
-                         BorderThickness="0" Background="Transparent"
-                         VerticalAlignment="Center" FontSize="12"
-                         Text="{Binding SubscriptionUrl, UpdateSourceTrigger=LostFocus}"
-                         GotFocus="SubscriptionBox_GotFocus"
-                         LostFocus="SubscriptionBox_LostFocus"/>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12"
+                           Foreground="{StaticResource SubtleBrush}">
+                    <Run Text="Конфиг: "/><Run Text="{Binding Servers.Count, Mode=OneWay}"/><Run Text=" серверов"/>
+                </TextBlock>
 
-                <Button Grid.Column="1" Content="Добавить / обновить"
-                        Command="{Binding RefreshSubscriptionCommand}"
-                        Width="150" Height="28"
-                        Background="#5C6BC0" Foreground="White"
-                        BorderThickness="0" Cursor="Hand"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button Content="QR из буфера" Click="QrFromClipboard_Click"
+                            ToolTip="Считать ссылку или QR-код из буфера обмена"
+                            Height="26" Margin="0,0,6,0"
+                            Background="#455A64" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" FontSize="12"
+                            Padding="12,0"/>
+                    <Button Content="QR из файла…" Click="QrFromFile_Click"
+                            ToolTip="Открыть QR-код из файла (PNG/JPG)"
+                            Height="26" Margin="0,0,6,0"
+                            Background="#455A64" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" FontSize="12"
+                            Padding="12,0"/>
+                    <Button Content="Вставить…" Click="PasteLink_Click"
+                            ToolTip="Вставить URL подписки или share-ссылку вручную"
+                            Height="26" Margin="0,0,6,0"
+                            Background="#455A64" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" FontSize="12"
+                            Padding="12,0"/>
+                    <Button Content="Обновить"
+                            Command="{Binding RefreshSubscriptionCommand}"
+                            ToolTip="Обновить из сохранённого источника"
+                            Height="26" Width="110"
+                            Background="#5C6BC0" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" FontSize="12"/>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -180,6 +198,11 @@
                                Foreground="{Binding TunStatusBrush}"
                                FontSize="12" FontWeight="SemiBold"
                                VerticalAlignment="Center" Margin="0 0 15 0"/>
+                    <CheckBox Content="Авто-хост"
+                              IsChecked="{Binding AutoProxyEnabled}"
+                              ToolTip="Сканер авто-хостов (авто-прокси)"
+                              Foreground="{StaticResource SubtleBrush}"
+                              FontSize="12" Margin="0 0 15 0"/>
                     <CheckBox Content="Автозапуск"
                               IsChecked="{Binding AutoStart}"
                               Foreground="{StaticResource SubtleBrush}"

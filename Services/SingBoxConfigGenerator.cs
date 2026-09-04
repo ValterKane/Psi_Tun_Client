@@ -130,14 +130,15 @@ public static class SingBoxConfigGenerator
                 ["type"] = "https",
                 ["tag"] = "direct_doh"
             },
-            // remote_dns — 8.8.8.8 через прокси (для заблокированных)
+            // remote_dns — 8.8.8.8 через VPN (force-proxy, минует blocked-only у Xray),
+            // чтобы заблокированные домены получали настоящие IP, а не подмену цензурного DNS
             new JsonObject
             {
                 ["server"] = "8.8.8.8",
                 ["domain_resolver"] = "local_local",
                 ["type"] = "udp",
                 ["tag"] = "remote_dns",
-                ["detour"] = "proxy"
+                ["detour"] = "force-proxy"
             },
             // hosts_dns — предзаполненные hostname→IP
             new JsonObject
@@ -174,6 +175,14 @@ public static class SingBoxConfigGenerator
         {
             ["server"] = "yandex_dns",
             ["rule_set"] = new JsonArray { "geosite-ru-available-only-inside" }
+        });
+
+        // Заблокированные в РФ домены → резолв через VPN (remote_dns),
+        // иначе цензурный DNS подменяет IP (googlevideo → 188.43.x) и видео не грузится
+        rules.Add(new JsonObject
+        {
+            ["server"] = "remote_dns",
+            ["rule_set"] = new JsonArray { "geosite-ru-blocked", "geosite-ru-blocked-all" }
         });
 
         // Реклама + Win-шпионы → NXDOMAIN (блок на уровне DNS)
@@ -356,6 +365,22 @@ public static class SingBoxConfigGenerator
                     ["tag"] = "geosite-ru-available-only-inside",
                     ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
                         "geosite-ru-available-only-inside.srs"),
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-ru-blocked",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-ru-blocked.srs"),
+                    ["format"] = "binary"
+                },
+                new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "geosite-ru-blocked-all",
+                    ["path"] = Path.Combine(baseDir, "sing-box", "rules", "rule-set-geosite",
+                        "geosite-ru-blocked-all.srs"),
                     ["format"] = "binary"
                 },
                 new JsonObject
