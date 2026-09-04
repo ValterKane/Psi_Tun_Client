@@ -149,13 +149,19 @@ public static class SingBoxConfigGenerator
             }
         };
 
+        // Каноничная форма правил: action + server (action добавлен в 1.11,
+        // голый server на уровне правила — legacy-алиас). Все поля ниже — текущие,
+        // не-deprecated (на момент sing-box 1.14).
         var rules = new JsonArray
         {
-            // Hosts first (ip_accept_any)
+            // Hosts first: предзаполненные hostname→IP резолвим через hosts_dns без сети.
+            // preferred_by принимает ТЕГ DNS-сервера (не тип) — матчит домены из его predefined.
+            // Заменяет ip_accept_any, который в 1.14 стал response-полем, а в 1.16 удалён.
             new JsonObject
             {
+                ["action"] = "route",
                 ["server"] = "hosts_dns",
-                ["ip_accept_any"] = true
+                ["preferred_by"] = new JsonArray { "hosts_dns" }
             }
         };
 
@@ -165,6 +171,7 @@ public static class SingBoxConfigGenerator
             var serverDomains = new JsonArray { server.Address };
             rules.Add(new JsonObject
             {
+                ["action"] = "route",
                 ["server"] = "direct_dns",
                 ["domain"] = serverDomains
             });
@@ -173,6 +180,7 @@ public static class SingBoxConfigGenerator
         // RU-only сайты → Яндекс DNS (напрямую, быстро)
         rules.Add(new JsonObject
         {
+            ["action"] = "route",
             ["server"] = "yandex_dns",
             ["rule_set"] = new JsonArray { "geosite-ru-available-only-inside" }
         });
@@ -181,6 +189,7 @@ public static class SingBoxConfigGenerator
         // иначе цензурный DNS подменяет IP (googlevideo → 188.43.x) и видео не грузится
         rules.Add(new JsonObject
         {
+            ["action"] = "route",
             ["server"] = "remote_dns",
             ["rule_set"] = new JsonArray { "geosite-ru-blocked", "geosite-ru-blocked-all" }
         });
@@ -196,6 +205,7 @@ public static class SingBoxConfigGenerator
         // Приватные домены → напрямую (direct_dns)
         rules.Add(new JsonObject
         {
+            ["action"] = "route",
             ["server"] = "direct_dns",
             ["rule_set"] = new JsonArray { "geosite-private" }
         });
@@ -213,7 +223,6 @@ public static class SingBoxConfigGenerator
             ["servers"] = servers,
             ["rules"] = rules,
             ["final"] = "direct_dns",
-            ["independent_cache"] = true,
             ["strategy"] = "prefer_ipv4"
         };
     }
