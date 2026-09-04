@@ -98,50 +98,22 @@ public class BootstrapService
         progress?.Report(("Downloading sing-box...", 88));
         await DownloadSingBoxAsync(http, progress);
 
-        // Runetfreedom geo data — replaces Xray's default geosite.dat/geoip.dat
+        // RU geo data (geoip/geosite + sing-box .srs) — не критично для старта
         progress?.Report(("Downloading RU geo data...", 93));
-        await DownloadRunetFreedomGeoAsync(http, progress);
+        try
+        {
+            await new GeoUpdateService(_baseDir).UpdateAsync(progress);
+        }
+        catch (Exception ex)
+        {
+            var logPath = Path.Combine(_baseDir, "bootstrap.log");
+            File.AppendAllText(logPath, $"[{DateTime.Now}] geo download failed: {ex.Message}\n");
+        }
 
         // Write marker so we don't re-bootstrap
         File.WriteAllText(_bootMarker, DateTime.Now.ToString("O"));
 
         progress?.Report(("Ready!", 100));
-    }
-
-    private async Task DownloadRunetFreedomGeoAsync(HttpClient http, IProgress<(string, int)>? progress)
-    {
-        var geoUrl = "https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest";
-
-        try
-        {
-            var release = await http.GetFromJsonAsync<GitHubRelease>(geoUrl);
-            if (release?.Assets is null) return;
-
-            foreach (var asset in release.Assets)
-            {
-                if (asset.Name is not ("geosite.dat" or "geoip.dat")) continue;
-                if (asset.BrowserDownloadUrl is null) continue;
-
-                progress?.Report(($"Downloading {asset.Name}...", 94));
-
-                using var response = await http.GetAsync(asset.BrowserDownloadUrl);
-                response.EnsureSuccessStatusCode();
-
-                // Overwrite Xray's default geo files
-                var destCore = Path.Combine(_coreDir, asset.Name);
-                await using (var stream = await response.Content.ReadAsStreamAsync())
-                await using (var fs = File.Create(destCore))
-                {
-                    await stream.CopyToAsync(fs);
-                }
-
-            }
-        }
-        catch (Exception ex)
-        {
-            var logPath = Path.Combine(_baseDir, "bootstrap.log");
-            File.AppendAllText(logPath, $"[{DateTime.Now}] Runetfreedom geo download failed: {ex.Message}\n");
-        }
     }
 
     private async Task DownloadSingBoxAsync(HttpClient http, IProgress<(string, int)>? progress)

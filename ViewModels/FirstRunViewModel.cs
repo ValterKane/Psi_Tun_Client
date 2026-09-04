@@ -44,7 +44,7 @@ public class FirstRunViewModel : INotifyPropertyChanged
     {
         if (string.IsNullOrWhiteSpace(Url))
         {
-            Status = "Введите URL подписки.";
+            Status = "Введите URL подписки или vless://-ссылку.";
             return;
         }
 
@@ -53,11 +53,11 @@ public class FirstRunViewModel : INotifyPropertyChanged
 
         try
         {
-            var servers = await SubscriptionParser.ParseAsync(Url);
+            var servers = await SubscriptionParser.ParseInputAsync(Url);
 
             if (servers.Count == 0)
             {
-                Status = "Не удалось найти сервера в подписке. Проверьте URL.";
+                Status = "Не удалось найти сервера. Проверьте ссылку.";
                 return;
             }
 

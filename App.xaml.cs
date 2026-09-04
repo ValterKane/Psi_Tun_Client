@@ -175,6 +175,7 @@ public partial class App : Application
         _tray.OnToggleConnection += ToggleConnection;
         _tray.OnOpenWindow += ShowMainWindow;
         _tray.OnSwitchServer += SwitchServer;
+        _tray.OnUpdateGeo += () => _ = UpdateGeoDataAsync();
         _tray.UpdateStatus(false);
 
         // First run or no subscription?
@@ -297,6 +298,38 @@ public partial class App : Application
         return await Core.RestartXrayAsync();
     }
 
+    public void SetAutoProxyEnabled(bool enabled)
+    {
+        Settings.AutoProxyEnabled = enabled;
+        Settings.Save(AppConfigPath);
+
+        if (enabled && Core is { IsRunning: true } && _autoProxy is null)
+        {
+            _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
+            _autoProxy.Start();
+        }
+        else if (!enabled)
+        {
+            _autoProxy?.Dispose();
+            _autoProxy = null;
+        }
+    }
+
+    public async Task UpdateGeoDataAsync()
+    {
+        try
+        {
+            _mainWindow?.AppendLog("[geo] обновление запущено...");
+            await new GeoUpdateService(BaseDir).UpdateAsync(
+                new Progress<(string status, int pct)>(u => _mainWindow?.AppendLog($"[geo] {u.status}")));
+            _mainWindow?.AppendLog("[geo] готово");
+        }
+        catch (Exception ex)
+        {
+            _mainWindow?.AppendLog($"[geo] ошибка: {ex.Message}");
+        }
+    }
+
     public async Task ConnectAsync()
     {
         if (Servers.Count == 0) return;
@@ -349,8 +382,17 @@ public partial class App : Application
                 Settings.Save(AppConfigPath);
 
                 _autoProxy?.Dispose();
-                _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
-                _autoProxy.Start();
+                _autoProxy = null;
+                if (Settings.AutoProxyEnabled)
+                {
+                    _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
+                    _autoProxy.Start();
+                }
+
+                // Автообновление geo-данных (раз в сутки) — в фоне, не блокирует
+                var geo = new GeoUpdateService(BaseDir);
+                if (geo.NeedsUpdate(TimeSpan.FromHours(24)))
+                    _ = Task.Run(() => geo.UpdateAsync());
             }
             else
             {

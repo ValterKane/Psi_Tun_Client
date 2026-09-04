@@ -20,7 +20,7 @@
         <TextBlock Grid.Row="0" Text="Добро пожаловать в Psi-Tun"
                    FontSize="18" FontWeight="Bold" Margin="0,0,0,5"/>
 
-        <TextBlock Grid.Row="1" Text="Введите URL подписки на VPN для начала работы.&#10;Поддерживаются: VLESS, VMess, Trojan, Shadowsocks, Base64, Clash, sing-box."
+        <TextBlock Grid.Row="1" Text="Введите URL подписки или вставьте ссылку vless:// / vmess:// / trojan:// / ss://.&#10;Поддерживаются также Base64, Clash, sing-box."
                    FontSize="12" Foreground="#A0A0B0"
                    TextWrapping="Wrap" Margin="0,0,0,15"/>
 

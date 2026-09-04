@@ -43,6 +43,27 @@ public static partial class SubscriptionParser
         return ParseContent(content, url);
     }
 
+    /// <summary>
+    /// Accepts either a subscription URL (http/https) or a direct share link
+    /// (vless://, vmess://, trojan://, ss:// — optionally multi-line, base64,
+    /// Clash YAML or sing-box JSON) and routes to the right parser.
+    /// </summary>
+    public static async Task<List<VpnServer>> ParseInputAsync(string input, HttpClient? client = null)
+    {
+        var trimmed = input?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return [];
+
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ParseAsync(trimmed, client).ConfigureAwait(false);
+        }
+
+        // Direct share link(s) — ParseContent already routes plain links to ShareLinkParser
+        return ParseContent(trimmed, "");
+    }
+
     public static List<VpnServer> ParseContent(string content, string sourceUrl = "")
     {
         // Try to detect format

@@ -11,6 +11,7 @@ public class SettingsService
     public bool AutoStart { get; set; } = true;
     public bool UseTun { get; set; } = true;
     public bool UsePac { get; set; } = true;
+    public bool AutoProxyEnabled { get; set; } = true;
 
     // TUN settings
     public string TunName { get; set; } = "sing-tun";

@@ -16,6 +16,8 @@ public static class ProbeService
         try
         {
             var direct = await ProbeOnceAsync(host, App.Settings.XrayInboundPort, ct);
+            if (!direct.ok)
+                direct = await ProbeOnceAsync(host, App.Settings.XrayInboundPort, ct); // повтор на «лаг»
             var proxy = await ProbeOnceAsync(host, ForceProxyPort, ct);
             return new ProbeResult(host, direct.ok, direct.ms, proxy.ok, proxy.ms);
         }

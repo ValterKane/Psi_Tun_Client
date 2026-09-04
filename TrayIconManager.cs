@@ -14,6 +14,7 @@ public class TrayIconManager : IDisposable
     public event Action? OnToggleConnection;
     public event Action? OnOpenWindow;
     public event Action<int>? OnSwitchServer;
+    public event Action? OnUpdateGeo;
     public event Action? OnExit;
 
     public TrayIconManager()
@@ -96,6 +97,11 @@ public class TrayIconManager : IDisposable
         var openItem = new ToolStripMenuItem("Открыть окно");
         openItem.Click += (_, _) => OnOpenWindow?.Invoke();
         _menu.Items.Add(openItem);
+
+        // Update geo data
+        var updateGeoItem = new ToolStripMenuItem("Обновить geo-данные");
+        updateGeoItem.Click += (_, _) => OnUpdateGeo?.Invoke();
+        _menu.Items.Add(updateGeoItem);
 
         _menu.Items.Add(new ToolStripSeparator());
 
