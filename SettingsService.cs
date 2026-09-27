@@ -17,7 +17,7 @@ public class SettingsService
     public string TunName { get; set; } = "sing-tun";
     public string TunAddress { get; set; } = "172.18.0.1/30";
     public string TunGateway { get; set; } = "172.18.0.2";
-    public int TunMtu { get; set; } = 1500;
+    public int TunMtu { get; set; } = 1476;
     public string TunDns { get; set; } = "172.18.0.2";
     public bool AutoRoute { get; set; } = true;
     public bool StrictRoute { get; set; } = true;

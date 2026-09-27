@@ -409,14 +409,15 @@ public static class ConfigGenerator
 
             var realityObj = new JsonObject
             {
-                ["serverName"] = !string.IsNullOrEmpty(s.Sni) ? s.Sni :
-                                  !string.IsNullOrEmpty(s.Host) ? s.Host : s.Address,
-                ["fingerprint"] = string.IsNullOrEmpty(s.Fingerprint) ? "chrome" : s.Fingerprint,
+                ["fingerprint"] = NormalizeFingerprint(s.Fingerprint),
                 ["show"] = false,
                 ["publicKey"] = s.PublicKey,
                 ["shortId"] = s.ShortId,
                 ["spiderX"] = string.IsNullOrEmpty(s.SpiderX) ? "/" : s.SpiderX
             };
+
+            var sni = ServerName(s);
+            if (sni is not null) realityObj["serverName"] = sni;
 
             if (!string.IsNullOrEmpty(s.Mldsa65Verify))
                 realityObj["mldsa65Verify"] = s.Mldsa65Verify;
@@ -434,11 +435,22 @@ public static class ConfigGenerator
         else if (s.Security == "tls")
         {
             streamSettings["security"] = "tls";
-            streamSettings["tlsSettings"] = new JsonObject
-            {
-                ["serverName"] = string.IsNullOrEmpty(s.Host) ? s.Address : s.Host,
-                ["allowInsecure"] = false
-            };
+
+            var tlsObj = new JsonObject { ["allowInsecure"] = false };
+            var sni = ServerName(s);
+            if (sni is not null) tlsObj["serverName"] = sni;
+
+            // alpn lives in tlsSettings and nowhere else: REALITYConfig has no
+            // alpn field (infra/conf/transport_security.go), and a REALITY
+            // client's ALPN is the uTLS fingerprint's own preset, forwarded to
+            // the target untouched — that mimicry is the point. Emitting it
+            // under realitySettings would be silently dropped config.
+            // Omitted entirely when the server sent none, in which case xray
+            // defaults to ["h2","http/1.1"] (transport/internet/tls/config.go).
+            var alpn = AlpnArray(s.Alpn);
+            if (alpn is not null) tlsObj["alpn"] = alpn;
+
+            streamSettings["tlsSettings"] = tlsObj;
         }
 
         var outbound = new JsonObject
@@ -456,6 +468,63 @@ public static class ConfigGenerator
 
         return outbound;
     }
+
+    /// <summary>
+    /// serverName for the TLS/REALITY handshake, taken only from what the share
+    /// link carried: sni, else host. Deliberately never <c>s.Address</c> — an IP
+    /// can never match the server's serverNames, so REALITY falls back to
+    /// proxying the target and hands the client that target's real certificate
+    /// ("received real certificate"). Returns null when the link carried
+    /// neither, so the field is omitted rather than invented.
+    /// </summary>
+    private static string? ServerName(VpnServer s) =>
+        !string.IsNullOrEmpty(s.Sni) ? s.Sni :
+        !string.IsNullOrEmpty(s.Host) ? s.Host : null;
+
+    /// <summary>
+    /// ALPN tokens as xray wants them — a JSON array of strings. Links carry
+    /// them comma-joined ("h2,http/1.1"); clash writes a flow list, so the
+    /// brackets and quotes are stripped here as well. Null when nothing usable
+    /// is left, which omits the field and lets xray apply its own default.
+    /// </summary>
+    private static JsonArray? AlpnArray(string? alpn)
+    {
+        if (string.IsNullOrWhiteSpace(alpn)) return null;
+
+        var tokens = alpn
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(t => t.Trim('[', ']', '"', '\'').Trim())
+            .Where(t => t.Length > 0)
+            .ToArray();
+
+        if (tokens.Length == 0) return null;
+
+        var array = new JsonArray();
+        foreach (var token in tokens) array.Add(token);
+        return array;
+    }
+
+    /// <summary>
+    /// Only chrome / firefox / safari are reliable with REALITY; every other
+    /// value is mapped to chrome.
+    ///   - "random" draws one of the eight uTLS presets per connection and
+    ///     "randomized" builds a fresh ClientHello each time — both succeed
+    ///     only about half the time;
+    ///   - ios / android / edge / qq and 360 never complete a handshake. The
+    ///     first four surface as "REALITY: received real certificate (potential
+    ///     MITM or redirection)": REALITY does not recognise the client and
+    ///     proxies the inbound target instead, handing over the target's
+    ///     genuine certificate. 360 fails silently, with no such error.
+    /// These values arrive inside share links emitted by the panel, so links
+    /// already imported cannot be repaired server-side.
+    /// </summary>
+    private static string NormalizeFingerprint(string? fp) =>
+        fp is not null && (
+            fp.Equals("chrome", StringComparison.OrdinalIgnoreCase) ||
+            fp.Equals("firefox", StringComparison.OrdinalIgnoreCase) ||
+            fp.Equals("safari", StringComparison.OrdinalIgnoreCase))
+            ? fp
+            : "chrome";
 
     /// <summary>
     /// Build xmux JSON node — from subscription's extra.xmux or hardcoded defaults.

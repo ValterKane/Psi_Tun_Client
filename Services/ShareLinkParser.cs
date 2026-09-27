@@ -188,7 +188,8 @@ public static partial class ShareLinkParser
                 case "sid" or "shortid": server.ShortId = val; break;
                 case "flow": server.Flow = val; break;
                 case "path" or "wspath": server.Path = val; break;
-                case "host" or "wsHost": server.Host = val; break;
+                // keys are lower-cased before the switch, so "wsHost" would never match
+                case "host" or "wshost": server.Host = val; break;
                 case "servicename": server.ServiceName = val; break;
                 case "mode": server.XhttpMode = val; break;
                 case "allowinsecure": break;

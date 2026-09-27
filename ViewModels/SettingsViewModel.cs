@@ -52,7 +52,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private string _tunDns = "";
     public string TunDns { get => _tunDns; set { _tunDns = value; OnPropertyChanged(); } }
 
-    private int _tunMtu = 1500;
+    private int _tunMtu = 1476;
     public string TunMtu { get => _tunMtu.ToString(); set { if (int.TryParse(value, out var v)) _tunMtu = v; OnPropertyChanged(); } }
 
     private bool _autoRoute;

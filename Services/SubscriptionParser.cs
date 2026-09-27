@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using PsiTun.Models;
 
@@ -77,13 +78,15 @@ public static partial class SubscriptionParser
         if (content.Contains("proxies:") || content.Contains("Proxy:"))
             return ParseClash(content);
 
-        // 3. Plain text share links (one per line)
-        if (content.Contains("://"))
-            return ParseLinks(content);
-
-        // 4. sing-box JSON format
+        // 3. sing-box JSON format — tested before the "://" check below, because a
+        // config with a DoH server or a rule_set URL also contains "://" and would
+        // otherwise be fed to the share-link scanner, matching nothing.
         if (content.StartsWith('{'))
             return ParseSingBoxJson(content);
+
+        // 4. Plain text share links (one per line)
+        if (content.Contains("://"))
+            return ParseLinks(content);
 
         return [];
     }
@@ -122,14 +125,29 @@ public static partial class SubscriptionParser
     {
         var servers = new List<VpnServer>();
 
-        // Clash YAML proxies section
-        var proxySection = Regex.Match(yaml, @"proxies:\s*\n((?:\s+-.*\n?)*)", RegexOptions.IgnoreCase);
+        // Clash YAML proxies section — every following indented line, stopping
+        // at the next top-level key (proxy-groups:, rules:, ...).
+        var proxySection = Regex.Match(yaml,
+            @"(?im)^[ \t]*proxies:[ \t]*\r?\n(?<body>(?:[ \t]+[^\r\n]*(?:\r?\n|$))*)");
         if (!proxySection.Success) return servers;
 
-        var proxyEntries = Regex.Matches(proxySection.Value, @"-\s*\{[^}]+\}");
-        foreach (Match entry in proxyEntries)
+        // One entry per '- ' line; the indented lines under it belong to the
+        // same entry. That covers flow style ('- {name: .., type: ..}', one
+        // line) and block style ('- name: ..' with the rest below) alike, and
+        // keeps the nested groups — ws-opts, grpc-opts, reality-opts — attached
+        // instead of cutting the entry short at the first '}'.
+        var entries = new List<string>();
+        foreach (var line in proxySection.Groups["body"].Value.Split('\n'))
         {
-            var parsed = ParseClashEntry(entry.Value);
+            if (Regex.IsMatch(line, @"^[ \t]*-[ \t]"))
+                entries.Add(line);
+            else if (entries.Count > 0)
+                entries[^1] += "\n" + line;
+        }
+
+        foreach (var entry in entries)
+        {
+            var parsed = ParseClashEntry(entry);
             if (parsed is not null) servers.Add(parsed);
         }
 
@@ -178,67 +196,200 @@ public static partial class SubscriptionParser
         server.Path = ExtractYamlField(entry, "path") ?? ExtractYamlField(entry, "ws-path") ?? "";
         server.Host = ExtractYamlField(entry, "host") ?? ExtractYamlField(entry, "ws-headers.Host") ?? "";
         server.Alpn = ExtractYamlField(entry, "alpn") ?? "";
-        server.Fingerprint = ExtractYamlField(entry, "fingerprint") ?? ExtractYamlField(entry, "fp") ?? "";
-        server.PublicKey = ExtractYamlField(entry, "reality-opts.public-key") ?? "";
-        server.ShortId = ExtractYamlField(entry, "reality-opts.short-id") ?? "";
+        server.ServiceName = ExtractYamlField(entry, "grpc-service-name") ?? "";
+        // clash spells the uTLS preset "client-fingerprint"; "fingerprint"/"fp" are the
+        // v2ray-style names that show up in hand-written entries
+        server.Fingerprint = ExtractYamlField(entry, "client-fingerprint")
+                          ?? ExtractYamlField(entry, "fingerprint")
+                          ?? ExtractYamlField(entry, "fp") ?? "";
+        // clash writes these as reality-opts: {public-key: .., short-id: ..} — the
+        // keys live INSIDE the group, so a "reality-opts.public-key:" lookup never
+        // matched anything and both fields stayed empty.
+        server.PublicKey = ExtractYamlField(entry, "public-key") ?? "";
+        server.ShortId = ExtractYamlField(entry, "short-id") ?? "";
 
         return string.IsNullOrEmpty(server.Address) ? null : server;
     }
 
+    /// <summary>
+    /// sing-box outbound JSON. Real JSON parsing (not regex) because every
+    /// transport/security parameter worth keeping lives one level down —
+    /// <c>tls.reality</c>, <c>tls.utls</c>, <c>transport.headers</c> — which a
+    /// flat field scan cannot reach.
+    /// </summary>
     private static List<VpnServer> ParseSingBoxJson(string json)
     {
-        // Extract outbounds array — simplistic approach without full JSON parsing
         var servers = new List<VpnServer>();
 
-        var outboundsMatch = Regex.Match(json, @"""outbounds""\s*:\s*\[([\s\S]*?)\](?=\s*[,}\]])");
-        if (!outboundsMatch.Success) return servers;
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(json); }
+        catch (JsonException) { return servers; }
 
-        // Extract individual outbound objects
-        var entries = Regex.Matches(outboundsMatch.Groups[1].Value, @"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}");
-        foreach (Match entry in entries)
+        using (doc)
         {
-            var type = ExtractJsonField(entry.Value, "type");
-            if (type is "direct" or "dns" or "block") continue;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !doc.RootElement.TryGetProperty("outbounds", out var outbounds) ||
+                outbounds.ValueKind != JsonValueKind.Array)
+                return servers;
 
-            var server = new VpnServer
+            foreach (var ob in outbounds.EnumerateArray())
             {
-                Name = ExtractJsonField(entry.Value, "tag") ?? type ?? "Server",
-                Address = ExtractJsonField(entry.Value, "server") ?? "",
-                Port = int.TryParse(ExtractJsonField(entry.Value, "server_port"), out var p) ? p : 0
-            };
-
-            switch (type)
-            {
-                case "vless": server.Protocol = VpnProtocol.VLess; break;
-                case "vmess": server.Protocol = VpnProtocol.VMess; break;
-                case "trojan": server.Protocol = VpnProtocol.Trojan; break;
-                case "shadowsocks": server.Protocol = VpnProtocol.Shadowsocks; break;
-                default: continue;
+                var parsed = ParseSingBoxOutbound(ob);
+                if (parsed is not null) servers.Add(parsed);
             }
-
-            server.Uuid = ExtractJsonField(entry.Value, "uuid") ?? "";
-            server.Password = ExtractJsonField(entry.Value, "password") ?? "";
-            server.Cipher = ExtractJsonField(entry.Value, "method") ?? "";
-            server.Security = ExtractJsonField(entry.Value, "security") ?? ExtractJsonField(entry.Value, "tls") ?? "none";
-
-            if (!string.IsNullOrEmpty(server.Address))
-                servers.Add(server);
         }
 
         return servers;
     }
 
-    private static string? ExtractYamlField(string yaml, string field)
+    private static VpnServer? ParseSingBoxOutbound(JsonElement ob)
     {
-        var pattern = $@"{Regex.Escape(field)}:\s*""?([^""\r\n,]+)""?";
-        var m = Regex.Match(yaml, pattern, RegexOptions.IgnoreCase);
-        return m.Success ? m.Groups[1].Value.Trim() : null;
+        if (ob.ValueKind != JsonValueKind.Object) return null;
+
+        var type = Str(ob, "type")?.ToLowerInvariant();
+        var server = new VpnServer
+        {
+            Name = Str(ob, "tag") ?? type ?? "Server",
+            Address = Str(ob, "server") ?? "",
+            Port = Int(ob, "server_port") ?? 0,
+            Uuid = Str(ob, "uuid") ?? "",
+            Password = Str(ob, "password") ?? "",
+            Flow = Str(ob, "flow") ?? ""
+        };
+
+        switch (type)
+        {
+            case "vless":
+                server.Protocol = VpnProtocol.VLess;
+                break;
+            case "vmess":
+                server.Protocol = VpnProtocol.VMess;
+                // vmess carries its cipher in "security"; it is NOT the tls mode
+                server.Cipher = Str(ob, "security") ?? "auto";
+                break;
+            case "trojan":
+                server.Protocol = VpnProtocol.Trojan;
+                break;
+            case "shadowsocks":
+                server.Protocol = VpnProtocol.Shadowsocks;
+                server.Cipher = Str(ob, "method") ?? "";
+                break;
+            default:
+                return null; // direct/dns/block/selector/socks/http are not servers
+        }
+
+        ApplySingBoxTls(ob, server);
+        ApplySingBoxTransport(ob, server);
+
+        return string.IsNullOrEmpty(server.Address) ? null : server;
     }
 
-    private static string? ExtractJsonField(string json, string field)
+    private static void ApplySingBoxTls(JsonElement ob, VpnServer s)
     {
-        var pattern = $@"""{field}"":\s*""([^""]*)""";
-        var m = Regex.Match(json, pattern);
-        return m.Success ? m.Groups[1].Value : null;
+        s.Security = "none";
+        if (!ob.TryGetProperty("tls", out var tls) || tls.ValueKind != JsonValueKind.Object) return;
+        if (!IsTrue(tls, "enabled")) return;
+
+        bool reality = tls.TryGetProperty("reality", out var r) &&
+                       r.ValueKind == JsonValueKind.Object && IsTrue(r, "enabled");
+
+        if (reality)
+        {
+            s.Security = "reality";
+            s.PublicKey = Str(r, "public_key") ?? "";
+            s.ShortId = Str(r, "short_id") ?? "";
+        }
+        else
+        {
+            s.Security = "tls";
+        }
+
+        s.Sni = Str(tls, "server_name") ?? "";
+        s.Alpn = JoinStrings(tls, "alpn");
+
+        if (tls.TryGetProperty("utls", out var utls) && utls.ValueKind == JsonValueKind.Object)
+            s.Fingerprint = Str(utls, "fingerprint") ?? "";
+    }
+
+    private static void ApplySingBoxTransport(JsonElement ob, VpnServer s)
+    {
+        if (!ob.TryGetProperty("transport", out var t) || t.ValueKind != JsonValueKind.Object) return;
+
+        s.Network = Str(t, "type") ?? "tcp";
+        switch (s.Network)
+        {
+            case "ws":
+                s.Path = Str(t, "path") ?? "";
+                s.Host = HeaderValue(t, "Host") ?? HeaderValue(t, "host") ?? "";
+                break;
+            case "grpc":
+                s.ServiceName = Str(t, "service_name") ?? "";
+                break;
+            case "httpupgrade":
+            case "xhttp":
+                s.Path = Str(t, "path") ?? "";
+                s.Host = Str(t, "host") ?? "";
+                if (s.Network == "xhttp") s.XhttpMode = Str(t, "mode") ?? "";
+                break;
+            case "http":
+            case "h2":
+                s.Path = Str(t, "path") ?? "";
+                s.Host = JoinStrings(t, "host");
+                break;
+        }
+    }
+
+    private static bool IsTrue(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+
+    private static string? Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
+
+    private static int? Int(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number &&
+        v.TryGetInt32(out var i) ? i : null;
+
+    /// <summary>Comma-joined array of strings — the shape VpnServer uses for alpn/host lists.</summary>
+    private static string JoinStrings(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+            ? string.Join(",", v.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString()))
+            : "";
+
+    private static string? HeaderValue(JsonElement transport, string header) =>
+        transport.TryGetProperty("headers", out var h) && h.ValueKind == JsonValueKind.Object
+            ? Str(h, header) : null;
+
+    /// <summary>
+    /// Flat scan of a clash entry, flow or block style. The regex is unanchored,
+    /// so a key nested inside <c>ws-opts: {path: /x, headers: {Host: y}}</c> is
+    /// found too — which is why '}' is excluded from the scalar value class:
+    /// without it the capture runs on past the closing brace and yields "y}}".
+    /// Lists are read before the scalar pattern, because that pattern stops at
+    /// the first comma — exactly where 'alpn: [h2, http/1.1]' would be cut in
+    /// half, keeping "h2" and silently dropping the second protocol.
+    /// </summary>
+    private static string? ExtractYamlField(string yaml, string field)
+    {
+        var f = Regex.Escape(field);
+
+        // Inline list — 'alpn: [h2, http/1.1]' / 'alpn: ["h2", "http/1.1"]'
+        var inline = Regex.Match(yaml, $@"{f}:[ \t]*(\[[^\]\r\n]*\])", RegexOptions.IgnoreCase);
+        if (inline.Success) return inline.Groups[1].Value.Trim();
+
+        // YAML block list — 'alpn:' followed by '- h2' lines
+        var block = Regex.Match(yaml,
+            $@"{f}:[ \t]*\r?\n(?<items>(?:[ \t]*-[ \t]*[^\r\n]+(?:\r?\n|$))+)",
+            RegexOptions.IgnoreCase);
+        if (block.Success)
+            return string.Join(",", Regex
+                .Matches(block.Groups["items"].Value, @"[ \t]*-[ \t]*([^\r\n]+)")
+                .Select(m => m.Groups[1].Value.Trim().Trim('"', '\'')));
+
+        // Scalar — 'path: /x', 'servername: y'
+        var m = Regex.Match(yaml, $@"{f}:\s*""?([^""\r\n,}}]+)""?", RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value.Trim() : null;
     }
 }

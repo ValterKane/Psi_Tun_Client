@@ -40,7 +40,7 @@ public class FirstRunViewModel : INotifyPropertyChanged
         LoadCommand = new RelayCommand(async _ => await LoadAsync());
     }
 
-    private async Task LoadAsync()
+    public async Task LoadAsync()
     {
         if (string.IsNullOrWhiteSpace(Url))
         {

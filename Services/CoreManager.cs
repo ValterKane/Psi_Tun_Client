@@ -193,7 +193,7 @@ public class CoreManager : IDisposable
         try
         {
             return NetworkInterface.GetAllNetworkInterfaces()
-                .Any(ni => ni.Name.Equals("singbox_tun", StringComparison.OrdinalIgnoreCase)
+                .Any(ni => ni.Name.Equals(App.Settings.TunName, StringComparison.OrdinalIgnoreCase)
                          && ni.OperationalStatus == OperationalStatus.Up);
         }
         catch { return false; }
@@ -346,7 +346,7 @@ public class CoreManager : IDisposable
                 var psi = new ProcessStartInfo
                 {
                     FileName = "powershell",
-                    Arguments = "-NoProfile -Command \"Get-NetAdapter -Name 'singbox_tun' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
+                    Arguments = $"-NoProfile -Command \"Get-NetAdapter -Name '{App.Settings.TunName}' -ErrorAction SilentlyContinue | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

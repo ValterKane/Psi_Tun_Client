@@ -52,7 +52,7 @@ public static class SingBoxConfigGenerator
             ["inbounds"] = BuildInbounds(settings),
             ["outbounds"] = BuildOutbounds(settings),
             ["endpoints"] = new JsonArray(),
-            ["route"] = BuildRouteConfig(xrayPath, cachePath, baseDir, customRules),
+            ["route"] = BuildRouteConfig(settings, xrayPath, cachePath, baseDir, customRules),
             ["experimental"] = new JsonObject
             {
                 ["cache_file"] = new JsonObject
@@ -230,7 +230,9 @@ public static class SingBoxConfigGenerator
     {
         var inbounds = new JsonArray();
 
-        // TUN inbound — gvisor stack (no admin needed), matches V2RayN
+        // TUN inbound — name and stack come from settings.
+        // TunStack also gates the elevation prompt in App.OnStartup, so it must
+        // reach the config or the two disagree (gvisor chosen but "mixed" applied).
         if (s.UseTun)
         {
             var address = new JsonArray { s.TunAddress };
@@ -238,12 +240,12 @@ public static class SingBoxConfigGenerator
             {
                 ["type"] = "tun",
                 ["tag"] = "tun",
-                ["interface_name"] = "singbox_tun",
+                ["interface_name"] = s.TunName,
                 ["address"] = address,
-                ["mtu"] = 9000,
+                ["mtu"] = s.TunMtu,
                 ["auto_route"] = s.AutoRoute,
                 ["strict_route"] = s.StrictRoute,
-                ["stack"] = "mixed"
+                ["stack"] = s.TunStack
             });
         }
 
@@ -299,8 +301,8 @@ public static class SingBoxConfigGenerator
         };
     }
 
-    private static JsonObject BuildRouteConfig(string xrayPath, string cachePath, string baseDir,
-        List<RoutingRule>? customRules = null)
+    private static JsonObject BuildRouteConfig(SettingsService s, string xrayPath, string cachePath,
+        string baseDir, List<RoutingRule>? customRules = null)
     {
         var xrayExePath = xrayPath; // JsonSerializer handles escaping
 
@@ -319,21 +321,24 @@ public static class SingBoxConfigGenerator
                 ["outbound"] = "direct",
                 ["process_path"] = new JsonArray { xrayExePath }
             },
-            // Sniff for protocol detection
-            new JsonObject { ["action"] = "sniff" },
-            // DNS hijack — logical OR of port 53 + protocol dns
-            new JsonObject
-            {
-                ["type"] = "logical",
-                ["mode"] = "or",
-                ["rules"] = new JsonArray
-                {
-                    new JsonObject { ["port"] = new JsonArray { 53 } },
-                    new JsonObject { ["protocol"] = new JsonArray { "dns" } }
-                },
-                ["action"] = "hijack-dns"
-            },
         };
+
+        // Sniff for protocol detection
+        if (s.EnableSniffing)
+            rules.Add(new JsonObject { ["action"] = "sniff" });
+
+        // DNS hijack — logical OR of port 53 + protocol dns
+        rules.Add(new JsonObject
+        {
+            ["type"] = "logical",
+            ["mode"] = "or",
+            ["rules"] = new JsonArray
+            {
+                new JsonObject { ["port"] = new JsonArray { 53 } },
+                new JsonObject { ["protocol"] = new JsonArray { "dns" } }
+            },
+            ["action"] = "hijack-dns"
+        });
 
         // Insert custom process_name/protocol rules
         if (customRules is { Count: > 0 })
