@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Windows;
 using PsiTun.Models;
 using PsiTun.Services;
+using PsiTun.ViewModels;
+using PsiTun.Views;
 using Application = System.Windows.Application;
 
 namespace PsiTun;
@@ -12,12 +14,16 @@ public partial class App : Application
 {
     // Paths — portable: everything next to .exe
     public static readonly string BaseDir = AppDomain.CurrentDomain.BaseDirectory;
-    public static readonly string CoreDir = Path.Combine(BaseDir, "xray");
-    public static readonly string CoreExe = Path.Combine(CoreDir, "xray.exe");
-    public static readonly string SingBoxDir = Path.Combine(BaseDir, "sing-box");
-    public static readonly string SingBoxExe = Path.Combine(SingBoxDir, "sing-box.exe");
-    public static readonly string ConfigPath = Path.Combine(BaseDir, "config.json");
-    public static readonly string SingBoxConfigPath = Path.Combine(BaseDir, "sing-box-config.json");
+
+    // Ядро живёт в одном каталоге: он же передаётся ядру флагом -d, иначе
+    // mihomo ищет geosite.dat в %USERPROFILE%\.config\mihomo и падает.
+    public static readonly string MihomoDir = Path.Combine(BaseDir, "mihomo");
+    public static readonly string MihomoExe = Path.Combine(MihomoDir, "mihomo.exe");
+    public static readonly string ConfigPath = Path.Combine(MihomoDir, "config.yaml");
+    public static readonly string ServersPath = Path.Combine(MihomoDir, "providers", "servers.yaml");
+    public static readonly string UserRulesPath = Path.Combine(MihomoDir, "rules", "user.yaml");
+    public static readonly string AutoRulesPath = Path.Combine(MihomoDir, "rules", "auto.yaml");
+
     public static readonly string AppConfigPath = Path.Combine(BaseDir, "appsettings.json");
     public static readonly string RulesFilePath = Path.Combine(BaseDir, "routing-rules.json");
 
@@ -25,7 +31,12 @@ public partial class App : Application
     public static SettingsService Settings { get; private set; } = null!;
     public static RoutingRuleService Rules { get; private set; } = null!;
 
-    public static CoreManager? Core { get; private set; }
+    /// <summary>
+    /// Единственное ядро. Имя оставлено прежним: на него смотрят
+    /// <c>AutoProxyEngine</c>, <c>PingService</c> и модели представления —
+    /// им нужны <c>IsRunning</c> и <c>OnLog</c>, которые есть у обоих типов.
+    /// </summary>
+    public static MihomoCore? Core { get; private set; }
 
     public static List<VpnServer> Servers { get; set; } = [];
 
@@ -62,6 +73,38 @@ public partial class App : Application
             catch (Exception ex)
             {
                 File.WriteAllText(Path.Combine(BaseDir, "selfcheck.log"), ex.ToString());
+                Environment.Exit(1);
+            }
+        }
+
+        // Ранний выход: дамп каркаса mihomo для внешней проверки `mihomo -t`.
+        // Заглушки провайдеров создаются только если файлов ещё нет.
+        if (e.Args.Contains("--dump-mihomo-config"))
+        {
+            try
+            {
+                DumpMihomoConfig();
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.Combine(BaseDir, "dump-mihomo.log"), ex.ToString());
+                Environment.Exit(1);
+            }
+        }
+
+        // Ранний выход: дамп провайдеров mihomo из реальных servers.json и
+        // routing-rules.json — для внешней проверки `mihomo -t`.
+        if (e.Args.Contains("--dump-mihomo-providers"))
+        {
+            try
+            {
+                DumpMihomoProviders();
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.Combine(BaseDir, "dump-mihomo.log"), ex.ToString());
                 Environment.Exit(1);
             }
         }
@@ -106,8 +149,8 @@ public partial class App : Application
 
         Directory.CreateDirectory(BaseDir);
 
-        // Bootstrap: download Xray-core if not present
-        if (!File.Exists(CoreExe))
+        // Bootstrap: download mihomo core if not present
+        if (!File.Exists(MihomoExe))
         {
             var bootWindow = new BootstrapWindow();
             bootWindow.Show();
@@ -136,7 +179,7 @@ public partial class App : Application
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        bootWindow.ShowError($"Download failed: {ex.Message}\nVPN won't work without Xray-core.");
+                        bootWindow.ShowError($"Download failed: {ex.Message}\nVPN won't work without mihomo-core.");
 
                         Task.Delay(3000).ContinueWith(_ =>
                             Dispatcher.Invoke(() =>
@@ -167,6 +210,75 @@ public partial class App : Application
         Rules = new RoutingRuleService(RulesFilePath);
     }
 
+    /// <summary>
+    /// Пишет каркас mihomo и заглушки провайдеров в каталог mihomo/, чтобы
+    /// `mihomo -t -f mihomo/config.yaml` провалидировал конфиг без запуска
+    /// приложения. Существующие провайдеры не перезаписываются.
+    /// </summary>
+    private static void DumpMihomoConfig()
+    {
+        Directory.CreateDirectory(MihomoDir);
+        Directory.CreateDirectory(Path.GetDirectoryName(ServersPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(UserRulesPath)!);
+
+        var settings = SettingsService.Load(AppConfigPath);
+        File.WriteAllText(ConfigPath, MihomoConfigGenerator.Generate(settings, "verification-secret"));
+
+        WriteStub(ServersPath, "proxies: []\n");
+        WriteStub(UserRulesPath, "payload: []\n");
+        WriteStub(AutoRulesPath, "payload: []\n");
+    }
+
+    /// <summary>
+    /// Пишет провайдеры mihomo из реальных данных приложения, чтобы
+    /// `mihomo -t` проверил их вместе с каркасом. Читает, не пишет: файлы
+    /// настроек приложения не изменяются. Читает с диска, а не из статики:
+    /// дамп идёт до <see cref="LoadSettings"/>.
+    /// </summary>
+    private static void DumpMihomoProviders()
+    {
+        var serversPath = Path.Combine(BaseDir, "servers.json");
+        var servers = File.Exists(serversPath)
+            ? JsonSerializer.Deserialize<List<VpnServer>>(File.ReadAllText(serversPath)) ?? []
+            : [];
+
+        WriteServersAndRules(servers, new RoutingRuleService(RulesFilePath));
+    }
+
+    private static void WriteStub(string path, string content)
+    {
+        if (!File.Exists(path)) File.WriteAllText(path, content);
+    }
+
+    /// <summary>
+    /// Провайдеры: список серверов и два файла правил. Пишутся при подключении и
+    /// при каждой правке правил; ядро подхватывает их через REST, поэтому ни
+    /// ядро, ни TUN-адаптер не пересоздаются. Разделение правил по файлам:
+    /// выученные авто-прокси уходят в свой провайдер, остальные — в
+    /// пользовательский; в каркасе `psi-auto` стоит перед `psi-user`.
+    /// </summary>
+    private static void WriteServersAndRules(IReadOnlyList<VpnServer> servers, RoutingRuleService rules)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ServersPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(UserRulesPath)!);
+
+        MihomoProviderWriter.WriteServers(ServersPath, servers);
+
+        var all = rules.Load();
+        MihomoProviderWriter.WriteRules(UserRulesPath, all.Where(r => !r.IsAutoLearned).ToList());
+        MihomoProviderWriter.WriteRules(AutoRulesPath, all.Where(r => r.IsAutoLearned).ToList());
+    }
+
+    /// <summary>
+    /// Каркас пишется после создания ядра: секрет внешнего контроллера рождается
+    /// в <see cref="MihomoCore"/> и обязан совпасть с записанным в конфиг.
+    /// </summary>
+    private static async Task WriteScaffoldAsync()
+    {
+        Directory.CreateDirectory(MihomoDir);
+        await File.WriteAllTextAsync(ConfigPath, MihomoConfigGenerator.Generate(Settings, Core!.Secret));
+    }
+
     private void ContinueStartup()
     {
         // Setup tray
@@ -177,6 +289,11 @@ public partial class App : Application
         _tray.OnSwitchServer += SwitchServer;
         _tray.OnUpdateGeo += () => _ = UpdateGeoDataAsync();
         _tray.UpdateStatus(false);
+
+        // Настройка и реестр могут разойтись: переустановка, перенос каталога,
+        // снятый вручную ключ. Настройка — источник истины.
+        if (Settings.AutoStart != AutostartHelper.IsEnabled())
+            AutostartHelper.Set(Settings.AutoStart);
 
         // First run or no subscription?
         if (string.IsNullOrEmpty(Settings.SubscriptionUrl))
@@ -207,6 +324,11 @@ public partial class App : Application
 
             if (!_startMinimized)
                 _mainWindow.Show();
+
+            // Порядок обязателен: окно уже создано — подключение обновляет его
+            // состояние. Совместимо с --minimized.
+            if (Settings.AutoConnect && Servers.Count > 0)
+                _ = ConnectAsync();
         }
     }
 
@@ -225,19 +347,10 @@ public partial class App : Application
                 File.WriteAllText(Path.Combine(BaseDir, "servers.json"),
                     JsonSerializer.Serialize(Servers));
 
-                // Generate config
-                if (File.Exists(CoreExe))
-                {
-                    var config = ConfigGenerator.Generate(Servers, SelectedServerIndex);
-                    Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-                    File.WriteAllText(ConfigPath, config);
-                }
-
-                if (File.Exists(SingBoxExe))
-                {
-                    var sbConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex);
-                    File.WriteAllText(SingBoxConfigPath, sbConfig);
-                }
+                // Провайдеры пишутся сразу; каркас создаётся при подключении,
+                // когда рождается секрет контроллера.
+                if (File.Exists(MihomoExe))
+                    WriteServersAndRules(Servers, Rules);
 
                 _mainWindow = new MainWindow();
                 _mainWindow.Show();
@@ -281,21 +394,52 @@ public partial class App : Application
         }
     }
 
-    // Общая генерация обоих конфигов (переиспользуется ConnectAsync и ReloadXrayAsync)
-    private async Task WriteConfigsAsync()
-    {
-        var customRules = Rules.Load();
-        var config = ConfigGenerator.Generate(Servers, SelectedServerIndex, customRules: customRules);
-        await File.WriteAllTextAsync(ConfigPath, config);
-        var singBoxConfig = SingBoxConfigGenerator.Generate(Settings, Servers, SelectedServerIndex, customRules: customRules);
-        await File.WriteAllTextAsync(SingBoxConfigPath, singBoxConfig);
-    }
-
-    public async Task<bool> ReloadXrayAsync()
+    /// <summary>
+    /// Переписывает провайдеры правил и обновляет их через REST. Ядро и
+    /// TUN-адаптер не пересоздаются: правка применяется к новым соединениям
+    /// (измерено, Фаза 6, шаг 3).
+    /// </summary>
+    public async Task<bool> ReloadRulesAsync()
     {
         if (Core is not { IsRunning: true }) return false;
-        await WriteConfigsAsync();
-        return await Core.RestartXrayAsync();
+
+        try
+        {
+            WriteServersAndRules(Servers, Rules);
+            await Core.Api.RefreshRuleProviderAsync(MihomoConfigGenerator.UserRulesProvider, CancellationToken.None);
+            await Core.Api.RefreshRuleProviderAsync(MihomoConfigGenerator.AutoRulesProvider, CancellationToken.None);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _mainWindow?.AppendLog($"[Core] rule reload failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Подсказка о домене, доступ к которому ограничен. Окно показывается в потоке
+    /// UI; ответ приходит из окна либо молчанием по таймеру. Ошибка показа
+    /// считается молчанием: иначе ожидающий ответ остался бы незавершённым.
+    /// </summary>
+    public Task<bool?> AskProxyAsync(string host)
+    {
+        var answered = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Dispatcher.InvokeAsync(() =>
+        {
+            try
+            {
+                var vm = new AutoProxyPromptViewModel(host, answer => answered.TrySetResult(answer));
+                new AutoProxyPromptWindow(vm).Show();
+            }
+            catch
+            {
+                answered.TrySetResult(null);
+            }
+        });
+
+        return answered.Task;
     }
 
     public void SetAutoProxyEnabled(bool enabled)
@@ -305,7 +449,11 @@ public partial class App : Application
 
         if (enabled && Core is { IsRunning: true } && _autoProxy is null)
         {
-            _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
+            _autoProxy = new AutoProxyEngine
+            {
+                Log = line => _mainWindow?.AppendLog(line),
+                ConfirmAsync = AskProxyAsync
+            };
             _autoProxy.Start();
         }
         else if (!enabled)
@@ -334,19 +482,18 @@ public partial class App : Application
     {
         if (Servers.Count == 0) return;
 
-        if (!File.Exists(CoreExe))
+        if (!File.Exists(MihomoExe))
         {
-            MessageBox.Show("Xray-core не найден!", "PsiTun",
+            MessageBox.Show("mihomo не найден!", "PsiTun",
                 MessageBoxButton.OK, MessageBoxImage.Error);
 
             return;
         }
 
-        await WriteConfigsAsync();
-
-        // Start cores (Xray first = SOCKS server, then sing-box = TUN)
+        // Секрет внешнего контроллера рождается в ядре, поэтому каркас пишется
+        // после создания ядра и до его запуска.
         Core?.Dispose();
-        Core = new CoreManager(CoreExe, ConfigPath, SingBoxExe, SingBoxConfigPath);
+        Core = new MihomoCore(MihomoExe, MihomoDir, ConfigPath) { TunEnabled = Settings.UseTun };
 
         Core.OnLog += (line) =>
         {
@@ -367,6 +514,9 @@ public partial class App : Application
 
         try
         {
+            WriteServersAndRules(Servers, Rules);
+            await WriteScaffoldAsync();
+
             await Core.StartAsync();
 
             if (Core.IsRunning)
@@ -385,7 +535,11 @@ public partial class App : Application
                 _autoProxy = null;
                 if (Settings.AutoProxyEnabled)
                 {
-                    _autoProxy = new AutoProxyEngine { Log = line => _mainWindow?.AppendLog(line) };
+                    _autoProxy = new AutoProxyEngine
+            {
+                Log = line => _mainWindow?.AppendLog(line),
+                ConfirmAsync = AskProxyAsync
+            };
                     _autoProxy.Start();
                 }
 
@@ -397,7 +551,6 @@ public partial class App : Application
             else
             {
                 var error = Core.LastError;
-                var exitCode = Core.ExitCode;
 
                 if (!string.IsNullOrEmpty(error))
                     error = $"\n\nLast error:\n{error}";
@@ -446,13 +599,27 @@ public partial class App : Application
 
         if (Core is { IsRunning: true })
         {
-            Disconnect();
-            await Task.Delay(300);
-            await ConnectAsync();
+            try
+            {
+                // Горячая смена: перезапись провайдера и выбор прокси в группе.
+                // Ядро и TUN-адаптер не пересоздаются.
+                MihomoProviderWriter.WriteServers(ServersPath, Servers);
+                await Core.Api.RefreshProxyProviderAsync(
+                    MihomoConfigGenerator.ServersProvider, CancellationToken.None);
+                await Core.Api.SelectProxyAsync(
+                    MihomoConfigGenerator.ProxyGroup,
+                    MihomoProviderWriter.ProxyNames(Servers)[index],
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _mainWindow?.AppendLog($"[Core] server switch failed: {ex.Message}");
+            }
         }
 
         UpdateTrayServers();
         _mainWindow?.UpdateServerList(Servers, index);
+        _mainWindow?.UpdateStatus(true, Servers[index].Name);
     }
 
     private static void SetSystemProxy(bool enable, int port = 10809)

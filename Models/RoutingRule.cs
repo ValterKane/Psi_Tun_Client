@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace PsiTun.Models;
 
 public enum RuleMatchType
@@ -49,10 +47,4 @@ public class RoutingRule
     public bool IsAutoLearned { get; set; }      // найдено модулем авто-прокси
     public DateTime? LastCheckedAt { get; set; } // для TTL-перепроверки
     public bool ForceProxy { get; set; }
-
-    [JsonIgnore]
-    public bool IsSingBox => MatchType is RuleMatchType.ProcessName or RuleMatchType.Protocol;
-
-    [JsonIgnore]
-    public bool IsXray => !IsSingBox;
 }

@@ -7,12 +7,28 @@ namespace PsiTun.Services;
 public sealed class CandidateCollector
 {
     private static readonly Regex AnsiStrip = new(@"\x1b\[[0-9;]*m");
-    private static readonly Regex ConnToRegex = new(@"inbound connection to ([A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?):\d+");
-    // TUN логирует IP назначения, а не имя — имя связываем с IP через DNS-ответ.
-    // Кандидат = только хост, к которому реально было соединение (голый DNS-резолв не считается).
-    // ponytail: только A-записи (IPv4); AAAA-хосты не коррелируются, добавить при необходимости.
-    private static readonly Regex DnsARegex = new(
-        @"dns: exchanged A ([A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)\. \d+ IN A (\d{1,3}(?:\.\d{1,3}){3})");
+
+    // Формат ядра mihomo v1.19.32; обе формы подтверждены в двоичном файле:
+    //   [TCP] <источник> --> <назначение> match <правило> using <политика>
+    //   [TCP] <источник> --> <назначение> using <политика>
+    // Источник не разбирается — он различается по режиму TUN (адрес с портом либо
+    // имя процесса). Назначение — имя хоста, если ядро его вынюхало, иначе IP.
+    // Политика — только буквы: строка приходит в обёртке stderr (`msg="… using
+    // DIRECT"`), а туннельная запись несёт имя прокси в скобках
+    // (`using PROXY[VLESS …]`). Оба хвоста отсекаются этим классом, поэтому
+    // сравнение с DIRECT проходит, а PROXY отбрасывается.
+    private static readonly Regex ConnRegex = new(
+        @"--> (?<dst>[^\s]+) (?:match \S+ )?using (?<policy>[A-Za-z]+)");
+
+    // Прямой дозвон не состоялся — самая частая форма блокировки. Слова «using»
+    // в строке нет, основным выражением она не разбирается:
+    //   [TCP] dial DIRECT (match Match/) <источник> --> <назначение> error: connect failed: …
+    private static readonly Regex DirectFailRegex = new(
+        @"dial DIRECT \(match [^)]*\) \S+ --> (?<dst>[^\s]+) error:");
+
+    // Ответ DNS. Порядок сторон зависит от режима и версии, поэтому пара
+    // разбирается по типу значения, а не по позиции.
+    private static readonly Regex DnsRegex = new(@"\[DNS\] (?<a>[^\s,]+) --> (?<b>[^\s,]+)");
 
     private static readonly TimeSpan DnsEntryTtl = TimeSpan.FromMinutes(10);
 
@@ -36,32 +52,56 @@ public sealed class CandidateCollector
     {
         var clean = AnsiStrip.Replace(raw, "");
 
-        var m = ConnToRegex.Match(clean);
+        var m = ConnRegex.Match(clean);
         if (m.Success)
         {
-            var target = m.Groups[1].Value;
-            if (IPAddress.TryParse(target, out _))
-            {
-                foreach (var host in ResolveIp(target)) TryEnqueue(host);
-            }
-            else if (LooksLikeHost(target))
-            {
-                TryEnqueue(target);
-            }
+            // Кандидат — только то, что пошло напрямую: соединение через PROXY уже в туннеле.
+            if (!m.Groups["policy"].Value.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return;
+
+            EnqueueDestination(m.Groups["dst"].Value);
             return;
         }
 
-        var d = DnsARegex.Match(clean);
+        var f = DirectFailRegex.Match(clean);
+        if (f.Success)
+        {
+            EnqueueDestination(f.Groups["dst"].Value);
+            return;
+        }
+
+        var d = DnsRegex.Match(clean);
         if (!d.Success) return;
+
+        var left = d.Groups["a"].Value;
+        var right = d.Groups["b"].Value;
+        var (ip, dnsHost) = IPAddress.TryParse(left, out _) ? (left, right) : (right, left);
+        if (!IPAddress.TryParse(ip, out _) || !LooksLikeHost(dnsHost)) return;
+
         PruneDnsMap();
-        var ip = d.Groups[2].Value;
-        var dnsHost = d.Groups[1].Value;
-        var entry = _ipToHosts.GetOrAdd(ip, _ => (new HashSet<string>(StringComparer.OrdinalIgnoreCase), DateTime.UtcNow));
+        var entry = _ipToHosts.GetOrAdd(ip,
+            _ => (new HashSet<string>(StringComparer.OrdinalIgnoreCase), DateTime.UtcNow));
         lock (entry.Hosts) entry.Hosts.Add(dnsHost);
         _ipToHosts[ip] = (entry.Hosts, DateTime.UtcNow); // TTL от последнего ответа
     }
 
     public bool TryDequeue(out string host) => _queue.TryDequeue(out host!);
+
+    // Назначение приходит как «хост:порт». Соединение по IP связывается с именем
+    // через ответ DNS этого же ядра.
+    private void EnqueueDestination(string dst)
+    {
+        var colon = dst.LastIndexOf(':');
+        if (colon <= 0) return;
+        var host = dst[..colon];
+
+        if (IPAddress.TryParse(host, out _))
+        {
+            foreach (var resolved in ResolveIp(host)) TryEnqueue(resolved);
+            return;
+        }
+
+        TryEnqueue(host);
+    }
 
     private IEnumerable<string> ResolveIp(string ip)
     {
@@ -101,14 +141,25 @@ public sealed class CandidateCollector
             if (!cond) throw new InvalidOperationException("collector: " + msg);
         }
 
+        // Образцы взяты из живого лога ядра v1.19.32 и обёрнуты так, как строка
+        // приходит приложению: stderr ядра, `level=info msg="…"`. Обёртка
+        // обязательна — без неё закрывающая кавычка приклеивалась к политике и
+        // сравнение с DIRECT не проходило.
+        const string Env = "time=\"2026-10-07T02:03:55.252286500+03:00\" level=info ";
+
         var c = new CandidateCollector();
-        c.HandleLine("\u001b[36mINFO\u001b[0m [\u001b[38;5;66m123\u001b[0m 12ms] inbound/socks[socks-in]: inbound connection to example.com:443");
-        c.HandleLine("INFO [1400171491 25.47s] dns: exchanged A api.mywot.com. 60 IN A 35.81.100.31");
-        c.HandleLine("inbound/tun[tun]: inbound connection to 35.81.100.31:443"); // коннект по IP из DNS-ответа → кандидат
-        c.HandleLine("inbound/tun[tun]: inbound connection to 90.156.233.121:443"); // IP без DNS-ответа → не кандидат
-        c.HandleLine("outbound/direct[direct]: outbound connection to example.com:443"); // не матчится
-        Assert(c.TryDequeue(out var h1) && h1 == "example.com", "socks line parse");
-        Assert(c.TryDequeue(out var h2) && h2 == "api.mywot.com", "dns+connection correlation");
-        Assert(!c.TryDequeue(out _), "no more candidates");
+        c.HandleLine("\u001b[36mINFO\u001b[0m " + Env + "msg=\"[TCP] 198.18.0.1:65353(PsiTun.exe) --> github.com:443 match ProcessName(PsiTun.exe) using DIRECT\"");
+        c.HandleLine(Env + "msg=\"[TCP] 198.18.0.1:54124(curl.exe) --> direct.example.net:443 using DIRECT\"");                 // форма без match
+        c.HandleLine(Env + "msg=\"[TCP] 198.18.0.1:54639(curl.exe) --> tunneled.example.org:443 match RuleSet(psi-user) using PROXY[VLESS XHTTP Reality 443-Rockwell@Admin]\""); // туннель — не кандидат
+        c.HandleLine("level=warning msg=\"[TCP] dial DIRECT (match Match/) 198.18.0.1:54514(curl.exe) --> example.net:443 error: connect failed: dial tcp 8.6.112.0:443: i/o timeout\ndial tcp 8.47.69.0:443: i/o timeout\""); // отказ дозвона
+        c.HandleLine("[DNS] by-ip.example.com --> 35.81.100.31");
+        c.HandleLine(Env + "msg=\"[TCP] 198.18.0.1:54126(curl.exe) --> 35.81.100.31:443 using DIRECT\"");                       // IP из ответа DNS
+        c.HandleLine(Env + "msg=\"[TCP] 198.18.0.1:54127(curl.exe) --> 90.156.233.121:443 using DIRECT\"");                     // IP без ответа — не кандидат
+
+        Assert(c.TryDequeue(out var h1) && h1 == "github.com", "форма с match и обёрткой stderr");
+        Assert(c.TryDequeue(out var h2) && h2 == "direct.example.net", "форма без match");
+        Assert(c.TryDequeue(out var h3) && h3 == "example.net", "строка отказа дозвона");
+        Assert(c.TryDequeue(out var h4) && h4 == "by-ip.example.com", "связка с ответом DNS");
+        Assert(!c.TryDequeue(out _), "лишних кандидатов нет");
     }
 }

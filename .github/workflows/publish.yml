@@ -6,6 +6,12 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  # Версия ядра прибита к той, что прошла стенд. REALITY-интероп с Xray-сервером
+  # зависит от поведения ядра (группа X25519MLKEM768 в ClientHello, версия в
+  # SessionId), поэтому сборка релиза не должна уезжать на произвольный latest.
+  MIHOMO_VERSION: v1.19.32
+
 jobs:
   build:
     runs-on: windows-latest
@@ -32,65 +38,54 @@ jobs:
 
       - name: Prepare directories
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path publish/xray
-          New-Item -ItemType Directory -Force -Path publish/sing-box
+        run: New-Item -ItemType Directory -Force -Path publish/mihomo
 
-      - name: Download Xray-core
+      - name: Download mihomo
         shell: pwsh
         run: |
-          $url = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
-          Invoke-WebRequest $url -OutFile xray.zip
-          Expand-Archive xray.zip -DestinationPath publish/xray -Force
-          # Flatten: Xray zip has a versioned subfolder, move xray.exe up if needed
-          if (-not (Test-Path publish/xray/xray.exe)) {
-            $src = Get-ChildItem publish/xray -Recurse -Filter xray.exe | Select-Object -First 1
-            if ($src) { Move-Item $src.FullName publish/xray/xray.exe -Force }
-          }
-          Remove-Item xray.zip
+          # Прямые download-URL, без api.github.com — тот в РФ режется.
+          # Имя ассета точное: у релиза 127 ассетов с пересекающимися именами
+          # (go120..go125, микро-архитектуры v1/v2/v3, -compatible), поиск по
+          # подстроке взял бы вариант с чужой микро-архитектурой.
+          $assetName = "mihomo-windows-amd64-$env:MIHOMO_VERSION.zip"
+          $url = "https://github.com/MetaCubeX/mihomo/releases/download/$env:MIHOMO_VERSION/$assetName"
+          Invoke-WebRequest $url -OutFile mihomo.zip
+          Expand-Archive mihomo.zip -DestinationPath mihomo-tmp -Force
+          # В архиве один файл mihomo-windows-amd64.exe — имя не то, что нужно приложению
+          $src = Get-ChildItem mihomo-tmp -Recurse -Filter "mihomo-*.exe" | Select-Object -First 1
+          if (-not $src) { throw "mihomo exe not found in $assetName" }
+          Move-Item $src.FullName publish/mihomo/mihomo.exe -Force
+          Remove-Item mihomo-tmp -Recurse -Force
+          Remove-Item mihomo.zip
 
-      - name: Download sing-box
-        shell: pwsh
-        run: |
-          $url = "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
-          $release = Invoke-RestMethod $url
-          $asset = $release.assets | Where-Object { $_.name -like "*windows-amd64.zip" } | Select-Object -First 1
-          Invoke-WebRequest $asset.browser_download_url -OutFile sing-box.zip
-          Expand-Archive sing-box.zip -DestinationPath publish/sing-box-tmp -Force
-          # Flatten: sing-box zip has a versioned subfolder, move sing-box.exe up
-          $src = Get-ChildItem publish/sing-box-tmp -Recurse -Filter sing-box.exe | Select-Object -First 1
-          if ($src) { Move-Item $src.FullName publish/sing-box/sing-box.exe -Force }
-          Remove-Item publish/sing-box-tmp -Recurse -Force
-          Remove-Item sing-box.zip
-
-      - name: Download Runetfreedom rules
+      - name: Download Runetfreedom geo
         shell: pwsh
         run: |
           $geoUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"
           $ipUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"
-          # Xray looks in its working directory
-          Invoke-WebRequest $geoUrl -OutFile publish/xray/geosite.dat
-          Invoke-WebRequest $ipUrl -OutFile publish/xray/geoip.dat
-          # sing-box rule-sets (.srs files) — keep only the 4 used by DNS rules
-          $rulesZipUrl = "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/sing-box.zip"
-          Invoke-WebRequest $rulesZipUrl -OutFile rules.zip
-          $tmpDir = "rules-tmp"
-          Expand-Archive rules.zip -DestinationPath $tmpDir -Force
-          New-Item -ItemType Directory -Force -Path publish/sing-box/rules/rule-set-geosite
+          # mihomo читает geoip.dat/geosite.dat из каталога -d, то есть рядом с config.yaml
+          Invoke-WebRequest $geoUrl -OutFile publish/mihomo/geosite.dat
+          Invoke-WebRequest $ipUrl -OutFile publish/mihomo/geoip.dat
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          # Архив обязан быть самодостаточным: у пользователя без рабочего туннеля
+          # докачать ядро или гео-данные неоткуда.
           $needed = @(
-            "geosite-ru-available-only-inside.srs",
-            "geosite-ru-blocked.srs",
-            "geosite-ru-blocked-all.srs",
-            "geosite-category-ads-all.srs",
-            "geosite-win-spy.srs",
-            "geosite-private.srs"
+            'publish/PsiTun.exe',
+            'publish/mihomo/mihomo.exe',
+            'publish/mihomo/geoip.dat',
+            'publish/mihomo/geosite.dat'
           )
           foreach ($f in $needed) {
-            $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
-            if ($src) { Copy-Item $src.FullName publish/sing-box/rules/rule-set-geosite/ }
+            if (-not (Test-Path $f)) { throw "missing in package: $f" }
           }
-          Remove-Item $tmpDir -Recurse -Force
-          Remove-Item rules.zip
+          $v = & ./publish/mihomo/mihomo.exe -v
+          Write-Host "bundled core: $v"
+          if ("$v" -notmatch [regex]::Escape($env:MIHOMO_VERSION.TrimStart('v'))) {
+            throw "bundled core version mismatch: $v (expected $env:MIHOMO_VERSION)"
+          }
 
       - name: Package
         shell: pwsh

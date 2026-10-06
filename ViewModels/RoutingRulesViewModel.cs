@@ -59,7 +59,7 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
         rules.RemoveAll(r => r.IsAutoLearned && r.MatchType == rule.MatchType && r.Value == rule.Value);
         App.Rules.Save(rules);
         AutoRules.Remove(rule);
-        _ = App.CurrentApp().ReloadXrayAsync();
+        _ = App.CurrentApp().ReloadRulesAsync();
     }
 
     private void AddRule()
@@ -106,23 +106,14 @@ public class RoutingRulesViewModel : INotifyPropertyChanged
             Rules.Add(r);
     }
 
+    /// <summary>
+    /// Правила применяются без переподключения: провайдеры перезаписываются и
+    /// обновляются через REST, ядро и TUN-адаптер живут.
+    /// </summary>
     private async Task Save()
     {
         App.Rules.Save(Rules.Concat(AutoRules).ToList());
-
-        if (App.Core?.IsRunning == true)
-        {
-            try
-            {
-                App.CurrentApp().Disconnect();
-                await App.CurrentApp().ConnectAsync();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка переподключения: {ex.Message}",
-                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
+        await App.CurrentApp().ReloadRulesAsync();
     }
 
     // --- INotifyPropertyChanged ---

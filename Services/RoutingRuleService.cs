@@ -22,11 +22,25 @@ public class RoutingRuleService
                 var json = File.ReadAllText(_filePath);
                 var rules = JsonSerializer.Deserialize<List<RoutingRule>>(json,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return rules ?? GetDefaults();
+                if (rules is not null) return DropRemovedDefaults(rules);
             }
         }
         catch { }
         return GetDefaults();
+    }
+
+    /// <summary>
+    /// Отбрасывает дефолтные правила, которых больше нет в коде (например
+    /// отвергнутый mihomo слой <c>ru-blocked-all</c>). Иначе строка остаётся в
+    /// файле, payload-провайдер ядра разбирает её построчно, нераспознанное правило
+    /// пропускает с <c>level=warning</c> — и покрытие теряется молча, без следа в
+    /// интерфейсе. Пользовательские правила (<c>IsDefault == false</c>) не трогаются.
+    /// </summary>
+    private static List<RoutingRule> DropRemovedDefaults(List<RoutingRule> rules)
+    {
+        var defaults = GetDefaults();
+        return rules.Where(r => !r.IsDefault || defaults.Any(d =>
+            d.MatchType == r.MatchType && d.Value == r.Value && d.Action == r.Action)).ToList();
     }
 
     public void Save(List<RoutingRule> rules)
@@ -104,15 +118,13 @@ public class RoutingRuleService
             new() { Description = "BitTorrent DPI напрямую", MatchType = RuleMatchType.Protocol,
                 Value = "bittorrent", Action = RuleAction.Direct, IsDefault = true },
 
-            // Geosite rules (Xray)
+            // Geosite rules (mihomo)
             new() { Description = "Реклама — блок", MatchType = RuleMatchType.Geosite,
                 Value = "category-ads-all", Action = RuleAction.Block, IsDefault = true },
             new() { Description = "Шпионы Windows — блок", MatchType = RuleMatchType.Geosite,
                 Value = "win-spy", Action = RuleAction.Block, IsDefault = true },
             new() { Description = "Заблокировано в RU — прокси", MatchType = RuleMatchType.Geosite,
                 Value = "ru-blocked", Action = RuleAction.Proxy, IsDefault = true },
-            new() { Description = "Заблокировано в RU (расш.) — прокси", MatchType = RuleMatchType.Geosite,
-                Value = "ru-blocked-all", Action = RuleAction.Proxy, IsDefault = true },
             new() { Description = "Только из RU — напрямую", MatchType = RuleMatchType.Geosite,
                 Value = "ru-available-only-inside", Action = RuleAction.Direct, IsDefault = true },
         };

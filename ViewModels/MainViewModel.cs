@@ -54,10 +54,33 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     private bool _autoStart;
-    public bool AutoStart { get => _autoStart; set { _autoStart = value; App.Settings.AutoStart = value; OnPropertyChanged(); } }
+    public bool AutoStart
+    {
+        get => _autoStart;
+        set
+        {
+            if (_autoStart == value) return;
+            _autoStart = value;
+            App.Settings.AutoStart = value;
+            AutostartHelper.Set(value);
+            App.Settings.Save(App.AppConfigPath);
+            OnPropertyChanged();
+        }
+    }
 
     private bool _autoConnect;
-    public bool AutoConnect { get => _autoConnect; set { _autoConnect = value; App.Settings.AutoConnect = value; OnPropertyChanged(); } }
+    public bool AutoConnect
+    {
+        get => _autoConnect;
+        set
+        {
+            if (_autoConnect == value) return;
+            _autoConnect = value;
+            App.Settings.AutoConnect = value;
+            App.Settings.Save(App.AppConfigPath);
+            OnPropertyChanged();
+        }
+    }
 
     private bool _autoProxyEnabled;
     public bool AutoProxyEnabled
@@ -67,7 +90,18 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     private bool _autoScroll = true;
-    public bool AutoScroll { get => _autoScroll; set => _autoScroll = value; }
+    public bool AutoScroll
+    {
+        get => _autoScroll;
+        set
+        {
+            if (_autoScroll == value) return;
+            _autoScroll = value;
+            App.Settings.AutoScroll = value;
+            App.Settings.Save(App.AppConfigPath);
+            OnPropertyChanged();
+        }
+    }
 
     // --- Server list ---
     public ServerListItem? SelectedServer => Servers.FirstOrDefault(s => s.IsSelected);
@@ -96,6 +130,7 @@ public class MainViewModel : INotifyPropertyChanged
         SubscriptionUrl = App.Settings.SubscriptionUrl;
         AutoStart = App.Settings.AutoStart;
         AutoConnect = App.Settings.AutoConnect;
+        _autoScroll = App.Settings.AutoScroll;
         _autoProxyEnabled = App.Settings.AutoProxyEnabled;
     }
 

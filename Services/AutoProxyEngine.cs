@@ -7,14 +7,20 @@ namespace PsiTun.Services;
 public sealed class AutoProxyEngine : IDisposable
 {
     private readonly CandidateCollector _collector = new();
-    private readonly ConcurrentDictionary<string, int> _badStreak = new();
     private readonly ConcurrentDictionary<string, int> _goodStreak = new();
+    private readonly ConcurrentDictionary<string, DateTime> _declined = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private readonly object _reloadLock = new();
     private bool _reloadPending;
 
     public Action<string>? Log { get; set; }
+
+    /// <summary>
+    /// Спрашивает пользователя о домене: <c>true</c> — проксировать, <c>false</c> —
+    /// отказ, <c>null</c> — молчание. Не задан — правило не добавляется.
+    /// </summary>
+    public Func<string, Task<bool?>>? ConfirmAsync { get; set; }
 
     // Перезагрузка xray дебаунсится: серия learn/heal в коротком окне = один рестарт,
     // чтобы активные сессии не рвались на каждый выученный хост.
@@ -29,7 +35,7 @@ public sealed class AutoProxyEngine : IDisposable
         {
             await Task.Delay(1200);
             lock (_reloadLock) _reloadPending = false;
-            try { await App.CurrentApp().ReloadXrayAsync(); } catch { }
+            try { await App.CurrentApp().ReloadRulesAsync(); } catch { }
         });
     }
 
@@ -47,7 +53,8 @@ public sealed class AutoProxyEngine : IDisposable
         var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "localhost" };
         if (App.SelectedServerIndex >= 0 && App.SelectedServerIndex < App.Servers.Count)
             hosts.Add(App.Servers[App.SelectedServerIndex].Address);
-        foreach (var d in SingBoxConfigGenerator.DnsHosts.Keys) hosts.Add(d);
+        // Апстримы DNS каркаса — IP-адреса, а кандидаты отбираются только из имён
+        // (CandidateCollector.LooksLikeHost), поэтому отдельный список не нужен.
         return hosts;
     }
 
@@ -67,11 +74,16 @@ public sealed class AutoProxyEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Трёхкратного подтверждения больше нет: решение принимает пользователь.
+    /// Молчание правилом не становится, отказ и молчание кладутся в список
+    /// отложенных со своим сроком, чтобы вопрос не повторялся на каждый заход.
+    /// </summary>
     private async Task HandleCandidateAsync(string host, CancellationToken ct)
     {
         var rules = App.Rules.Load();
-        var auto = rules.FirstOrDefault(r => r.IsAutoLearned && MatchesHost(r, host));
 
+        var auto = rules.FirstOrDefault(r => r.IsAutoLearned && MatchesHost(r, host));
         if (auto != null)
         {
             // auto-heal только по повторному заходу после TTL
@@ -81,15 +93,27 @@ public sealed class AutoProxyEngine : IDisposable
         }
 
         if (IsKnown(rules, host)) return;
+        if (_declined.TryGetValue(host, out var until) && DateTime.UtcNow < until) return;
 
         var probe = await ProbeService.ProbeAsync(host, ct);
-        var verdict = AutoProxyClassifier.Classify(probe);
-        if (verdict == ProbeVerdict.Inconclusive) return;
-        if (verdict == ProbeVerdict.Good) { _badStreak[host] = 0; return; }
+        var verdict = AutoProxyClassifier.Classify(probe, App.Settings.StubHosts);
+        if (verdict != ProbeVerdict.Bad) return; // Good и Inconclusive — молча
 
-        var bad = _badStreak.AddOrUpdate(host, 1, (_, n) => n + 1);
-        if (bad < AutoProxyClassifier.LearnAfterBad) return;
-        Learn(host, rules);
+        var answer = ConfirmAsync is null ? null : await ConfirmAsync(host);
+        switch (answer)
+        {
+            case true:
+                Learn(host, rules);
+                break;
+            case false:
+                _declined[host] = DateTime.UtcNow + AutoProxyClassifier.DeclinedTtl;
+                Log?.Invoke($"[auto] отказано пользователем: {host}");
+                break;
+            default:
+                _declined[host] = DateTime.UtcNow + AutoProxyClassifier.SilenceRetry;
+                Log?.Invoke($"[auto] нет ответа: {host}");
+                break;
+        }
     }
 
     private async Task RecheckAutoAsync(RoutingRule auto, List<RoutingRule> rules, CancellationToken ct)
@@ -118,7 +142,7 @@ public sealed class AutoProxyEngine : IDisposable
 
     private void Learn(string host, List<RoutingRule> rules)
     {
-        _badStreak.TryRemove(host, out _);
+        _declined.TryRemove(host, out _);
         var existing = rules.FirstOrDefault(r => r.IsAutoLearned && MatchesHost(r, host));
         if (existing is null)
         {

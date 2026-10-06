@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="System.Net.Http.Json" Version="9.0.0" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
   </ItemGroup>
 
@@ -19,13 +20,12 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
 
+  <!-- Тестовый проект лежит в подкаталоге; без исключения его исходники
+       попадут в глоб **/*.cs основного проекта. -->
   <ItemGroup>
-    <None Update="ru-blocked.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="ru-custom.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <Compile Remove="PsiTun.Tests/**" />
+    <None Remove="PsiTun.Tests/**" />
+    <Page Remove="PsiTun.Tests/**" />
   </ItemGroup>
 
 </Project>

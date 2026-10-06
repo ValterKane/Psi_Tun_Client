@@ -12,6 +12,12 @@ public class SettingsService
     public bool UseTun { get; set; } = true;
     public bool UsePac { get; set; } = true;
     public bool AutoProxyEnabled { get; set; } = true;
+    public bool AutoScroll { get; set; } = true;
+
+    // Хосты-заглушки провайдеров: редирект на такой хост — признак блокировки.
+    // lawfilter.ertelecom.ru подтверждён тремя независимыми свидетельствами
+    // (см. план, Фаза 10). Остальные кандидаты проверку не прошли и сюда не внесены.
+    public List<string> StubHosts { get; set; } = ["lawfilter.ertelecom.ru"];
 
     // TUN settings
     public string TunName { get; set; } = "sing-tun";
@@ -27,7 +33,6 @@ public class SettingsService
     // Proxy ports
     public int HttpPort { get; set; } = 10809;
     public int SocksPort { get; set; } = 10808;
-    public int XrayInboundPort { get; set; } = 10810;
 
     public void Save(string path)
     {
