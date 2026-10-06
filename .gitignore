@@ -39,3 +39,7 @@ crash.log
 
 # Openclaude
 .openclaude/
+
+# Тестовый проект и рабочие документы в репозиторий не выносим
+PsiTun.Tests/
+docs/superpowers/
