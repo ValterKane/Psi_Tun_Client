@@ -61,10 +61,24 @@ public static class ProbeService
         }
     }
 
+    /// <summary>
+    /// Прямая рука с подтверждением: при первой неудаче — повтор. Прямая рука
+    /// непостоянна (протокол: example.com то таймаут, то 200 за 137 мс), и
+    /// одиночный промах давал ложный вердикт «заблокировано». Повтор общий для
+    /// полной пробы и для самолечения.
+    /// </summary>
+    private static async Task<(bool ok, long ms, int? status, string? redirectHost)> ProbeDirectHttpsAsync(
+        string host, CancellationToken ct)
+    {
+        var first = await ProbeDirectOnceAsync(host, ct);
+        if (first.ok || ct.IsCancellationRequested) return first;
+        return await ProbeDirectOnceAsync(host, ct);
+    }
+
     // ok = получен ЛЮБОЙ HTTP-ответ. Прямая рука идёт без прокси: процесс PsiTun.exe
     // первым правилом каркаса отправлен на DIRECT, поэтому и при включённом TUN
     // это прямой путь. Редирект читается как признак и не раскрывается.
-    private static async Task<(bool ok, long ms, int? status, string? redirectHost)> ProbeDirectHttpsAsync(
+    private static async Task<(bool ok, long ms, int? status, string? redirectHost)> ProbeDirectOnceAsync(
         string host, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();

@@ -153,6 +153,8 @@ public sealed class MihomoCore : IDisposable
         // нечего: прежняя семантика события (готовность ядра) сохраняется.
         if (TunEnabled && !await WaitForTunAsync())
         {
+            // Событие обязательно: иначе индикатор держит состояние прошлой сессии.
+            OnTunStatusChanged?.Invoke(false);
             OnLog?.Invoke(
                 $"[Core] TUN adapter not detected within {TunReadyTimeout.TotalSeconds:0}s");
             return true;

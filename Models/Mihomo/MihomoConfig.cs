@@ -24,6 +24,7 @@ public sealed class MihomoConfig
     [YamlMember(Alias = "geodata-mode")] public bool GeodataMode { get; set; } = true;
     [YamlMember(Alias = "tun")] public MihomoTun Tun { get; set; } = new();
     [YamlMember(Alias = "dns")] public MihomoDns Dns { get; set; } = new();
+    [YamlMember(Alias = "sniffer")] public MihomoSniffer Sniffer { get; set; } = new();
     [YamlMember(Alias = "proxy-providers")] public Dictionary<string, MihomoProxyProvider> ProxyProviders { get; set; } = new();
     [YamlMember(Alias = "proxy-groups")] public List<MihomoProxyGroup> ProxyGroups { get; set; } = new();
     [YamlMember(Alias = "rule-providers")] public Dictionary<string, MihomoRuleProvider> RuleProviders { get; set; } = new();
@@ -39,6 +40,15 @@ public sealed class MihomoTun
     [YamlMember(Alias = "auto-route")] public bool AutoRoute { get; set; } = true;
     [YamlMember(Alias = "strict-route")] public bool StrictRoute { get; set; } = true;
     [YamlMember(Alias = "dns-hijack")] public List<string> DnsHijack { get; set; } = new();
+
+    /// <summary>
+    /// Адрес адаптера. Ключа шлюза и DNS в схеме mihomo нет: следующий узел
+    /// выводится из маски подсети, DNS живёт в верхнеуровневой секции <c>dns</c>,
+    /// а <c>tun.dns-hijack</c> лишь перенаправляет порт 53 в её модуль
+    /// (проверено по wiki.metacubex.one и meta-docs, ядро v1.19.32).
+    /// Список: <c>null</c> — ключ не пишется, действует умолчание ядра 198.18.0.1/30.
+    /// </summary>
+    [YamlMember(Alias = "inet4-address")] public List<string>? Inet4Address { get; set; }
 }
 
 /// <summary>
@@ -51,8 +61,8 @@ public sealed class MihomoTun
 /// <c>fallback</c> не задаётся намеренно: его наличие автоматически включает
 /// <c>fallback-filter</c> с <c>geoip-code: CN</c>, и любой ответ вне Китая
 /// считается подменённым — российские домены уходят на зарубежные резолверы.
-/// Защиту от подмены несёт плечо <c>nameserver-policy</c> для
-/// <c>geosite:ru-blocked</c> (DoH через PROXY).
+/// Резолв по умолчанию идёт DoH через группу жёсткого пути; прямыми остаются
+/// только российские зоны и приватные адреса — их задаёт <c>nameserver-policy</c>.
 /// </summary>
 public sealed class MihomoDns
 {
@@ -91,4 +101,33 @@ public sealed class MihomoRuleProvider
     [YamlMember(Alias = "behavior")] public string Behavior { get; set; } = "classical";
     [YamlMember(Alias = "path")] public string Path { get; set; } = "";
     [YamlMember(Alias = "format")] public string Format { get; set; } = "yaml";
+}
+
+/// <summary>
+/// <c>sniffer</c>. Умолчание ядра — выключен; пустой <c>sniff</c> не вынюхивает
+/// ничего, поэтому порты задаются явно. Имена протоколов записаны заглавными
+/// буквами намеренно: это идентификаторы протоколов, а не члены модели, и
+/// YamlDotNet пишет их дословно (wiki.metacubex.one/en/config/sniff).
+/// </summary>
+public sealed class MihomoSniffer
+{
+    [YamlMember(Alias = "enable")] public bool Enable { get; set; }
+
+    /// <summary>
+    /// Подменять назначение распознанным доменом. Умолчание ядра — false; без
+    /// подмены в TUN-режиме правило применяется к IP, а не к домену.
+    /// <c>null</c> — ключ не пишется.
+    /// </summary>
+    [YamlMember(Alias = "override-destination")] public bool? OverrideDestination { get; set; }
+
+    [YamlMember(Alias = "sniff")] public Dictionary<string, MihomoSniffProtocol> Sniff { get; set; } = new();
+}
+
+public sealed class MihomoSniffProtocol
+{
+    /// <summary>Порты строками: запись допускает диапазон (<c>8080-8880</c>).</summary>
+    [YamlMember(Alias = "ports")] public List<string> Ports { get; set; } = new();
+
+    /// <summary>Перекрывает глобальное <c>override-destination</c>.</summary>
+    [YamlMember(Alias = "override-destination")] public bool? OverrideDestination { get; set; }
 }

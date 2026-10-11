@@ -45,7 +45,9 @@ public partial class MainWindow : Window
 
                 if (isError)
                 {
-                    File.AppendAllLines("error.log", new[] { line });
+                    // Файл открывается без разделения: параллельная запись
+                    // роняла поток таймера лога (см. crash.log).
+                    try { File.AppendAllLines("error.log", new[] { line }); } catch { }
                 }
                 
                 var brush = isError ? ErrorBrush : isWarn ? WarnBrush : InfoBrush;

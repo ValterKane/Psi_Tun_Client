@@ -16,9 +16,23 @@ public static class MihomoConfigGenerator
 
     public const string ProxyGroup = "PROXY";
     public const string ForceGroup = "FORCE";
+
+    /// <summary>
+    /// Группа жёсткого DNS-пути. `select` без выбранного узла оставляет резолв
+    /// заблокированных без выхода; `fallback` сам берёт живой узел.
+    /// </summary>
+    public const string DnsProxyGroup = "DNS-PROXY";
     public const string ServersProvider = "psi-servers";
-    public const string UserRulesProvider = "psi-user";
+
+    // Правила разложены по наборам по числу политик: политику несёт строка
+    // RULE-SET каркаса, строка внутри classical-набора её не задаёт. Проверено
+    // прогоном v1.19.32: `DOMAIN-SUFFIX,x,FORCE` в payload применяется как
+    // PROXY набора, `...,DIRECT` и `...,REJECT` — так же.
+    public const string RejectRulesProvider = "psi-reject";
     public const string AutoRulesProvider = "psi-auto";
+    public const string ForceRulesProvider = "psi-force";
+    public const string UserRulesProvider = "psi-user";
+    public const string DirectRulesProvider = "psi-direct";
 
     // Naming convention НЕ используется: он применяется и к алиасам, превращая
     // "socks-port" в "socksPort". Все ключи заданы алиасами в модели.
@@ -45,6 +59,8 @@ public static class MihomoConfigGenerator
             AutoRoute = s.AutoRoute,
             StrictRoute = s.StrictRoute,
             DnsHijack = ["any:53"],
+            // Пусто — ключ не пишется, ядро берёт своё умолчание 198.18.0.1/30.
+            Inet4Address = string.IsNullOrWhiteSpace(s.TunAddress) ? null : [s.TunAddress.Trim()],
         },
         Dns = new MihomoDns
         {
@@ -56,16 +72,46 @@ public static class MihomoConfigGenerator
             Ipv6 = false, // эквивалент прежнего dns.strategy = prefer_ipv4
             // IP-based, иначе разрешение имён DNS-серверов упирается в курицу-яйцо.
             ProxyServerNameserver = ["1.1.1.1", "77.88.8.8"],
-            Nameserver = ["77.88.8.8", "8.8.8.8"],
+            // Резолв идёт через туннель: открытый UDP 53 наружу не уходит, и
+            // российских резолверов в отчёте теста на утечку нет. Измерено: на
+            // прямом пути запрос уходил на 77.88.8.8 и был виден снаружи, при том
+            // что перехвата порта 53 провайдером нет (запросы к адресам TEST-NET
+            // истекали по таймауту).
+            //
+            // Два резолвера — резерв: ядро опрашивает список параллельно и берёт
+            // первый ответ, поэтому недоступность Cloudflare из туннеля не
+            // оставляет резолв без выхода. Ключ fallback не используем: он
+            // включает fallback-filter с geoip-code CN (см. комментарий класса).
+            Nameserver =
+            [
+                $"https://1.1.1.1/dns-query#{DnsProxyGroup}",
+                $"https://8.8.8.8/dns-query#{DnsProxyGroup}",
+            ],
             NameserverPolicy = new()
             {
+                // Прямыми резолверами остаются только российские зоны и приватные
+                // адреса: иначе российские сайты получат зарубежные адреса CDN.
+                // Отдельной записи для заблокированных не нужно — они и так идут
+                // тем же DoH через туннель.
+                ["geosite:category-ru"] = ["77.88.8.8"],
                 ["geosite:ru-available-only-inside"] = ["77.88.8.8"],
-                // DoH через VPN: замена прежнего remote_dns (detour: force-proxy)
-                ["geosite:ru-blocked"] = ["https://1.1.1.1/dns-query#PROXY"],
                 ["geosite:private"] = ["77.88.8.8"],
             },
             // fallback не задаём: его наличие включает fallback-filter с
             // geoip-code CN и уводит российские домены на зарубежные резолверы.
+        },
+        Sniffer = new MihomoSniffer
+        {
+            Enable = s.EnableSniffing,
+            // Подмена назначения распознанным доменом: без неё в TUN правило
+            // применяется к IP, и заблокированный домен уходит в MATCH,DIRECT.
+            OverrideDestination = true,
+            Sniff = new()
+            {
+                ["HTTP"] = new MihomoSniffProtocol { Ports = ["80", "8080-8880"], OverrideDestination = true },
+                ["TLS"] = new MihomoSniffProtocol { Ports = ["443", "8443"], OverrideDestination = true },
+                ["QUIC"] = new MihomoSniffProtocol { Ports = ["443", "8443"], OverrideDestination = true },
+            },
         },
         ProxyProviders = new()
         {
@@ -75,11 +121,15 @@ public static class MihomoConfigGenerator
         [
             new MihomoProxyGroup { Name = ProxyGroup, Type = "select", Use = [ServersProvider] },
             new MihomoProxyGroup { Name = ForceGroup, Type = "select", Use = [ServersProvider] },
+            new MihomoProxyGroup { Name = DnsProxyGroup, Type = "fallback", Use = [ServersProvider] },
         ],
         RuleProviders = new()
         {
-            [UserRulesProvider] = new MihomoRuleProvider { Path = "./rules/user.yaml" },
+            [RejectRulesProvider] = new MihomoRuleProvider { Path = "./rules/reject.yaml" },
             [AutoRulesProvider] = new MihomoRuleProvider { Path = "./rules/auto.yaml" },
+            [ForceRulesProvider] = new MihomoRuleProvider { Path = "./rules/force.yaml" },
+            [UserRulesProvider] = new MihomoRuleProvider { Path = "./rules/user.yaml" },
+            [DirectRulesProvider] = new MihomoRuleProvider { Path = "./rules/direct.yaml" },
         },
         Rules = BuildRules(),
     };
@@ -97,12 +147,20 @@ public static class MihomoConfigGenerator
         return
         [
             $"PROCESS-NAME,{self},DIRECT",
+            // Политику задаёт строка RULE-SET, поэтому наборов столько же,
+            // сколько политик. Порядок: блок раньше проксирования, явное
+            // указание пользователя раньше выученного автоматически,
+            // ru-blocked раньше ru-available-only-inside.
+            $"RULE-SET,{RejectRulesProvider},REJECT",
             $"RULE-SET,{AutoRulesProvider},PROXY",
+            $"RULE-SET,{ForceRulesProvider},FORCE",
             $"RULE-SET,{UserRulesProvider},PROXY",
+            $"RULE-SET,{DirectRulesProvider},DIRECT",
             "GEOIP,private,DIRECT,no-resolve",
-            // ru-blocked-all отвергнут: mihomo валит категорию целиком на 13 записях
-            // с хвостовой точкой (trailing dot is not allowed). См. spec, «Гео-данные».
+            // ru-blocked-all допустим только потому, что набор вычищен
+            // GeoSiteSanitizer: сырой файл валит загрузку категории целиком.
             "GEOSITE,ru-blocked,PROXY",
+            "GEOSITE,ru-blocked-all,PROXY",
             "GEOSITE,category-ads-all,REJECT",
             "GEOSITE,win-spy,REJECT",
             "MATCH,DIRECT",

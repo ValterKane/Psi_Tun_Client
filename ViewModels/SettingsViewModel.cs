@@ -17,8 +17,6 @@ public class SettingsViewModel : INotifyPropertyChanged
         var s = App.Settings;
         _tunName = s.TunName;
         _tunAddress = s.TunAddress;
-        _tunGateway = s.TunGateway;
-        _tunDns = s.TunDns;
         _tunMtu = s.TunMtu;
         _autoRoute = s.AutoRoute;
         _strictRoute = s.StrictRoute;
@@ -45,12 +43,6 @@ public class SettingsViewModel : INotifyPropertyChanged
     }
 
     public string TunMask => CidrToMask(TunAddress);
-
-    private string _tunGateway = "";
-    public string TunGateway { get => _tunGateway; set { _tunGateway = value; OnPropertyChanged(); } }
-
-    private string _tunDns = "";
-    public string TunDns { get => _tunDns; set { _tunDns = value; OnPropertyChanged(); } }
 
     private int _tunMtu = 1476;
     public string TunMtu { get => _tunMtu.ToString(); set { if (int.TryParse(value, out var v)) _tunMtu = v; OnPropertyChanged(); } }
@@ -85,8 +77,6 @@ public class SettingsViewModel : INotifyPropertyChanged
         var s = App.Settings;
         s.TunName = _tunName.Trim();
         s.TunAddress = _tunAddress.Trim();
-        s.TunGateway = _tunGateway.Trim();
-        s.TunDns = _tunDns.Trim();
         s.TunMtu = _tunMtu;
         s.AutoRoute = _autoRoute;
         s.StrictRoute = _strictRoute;

@@ -50,20 +50,31 @@ public static class MihomoProviderWriter
     }
 
     /// <summary>
-    /// Отображение правила в строку Clash. <c>null</c> — правило не переносится:
-    /// выключено либо его тип не имеет соответствия (<c>Protocol</c> —
-    /// DPI-классификация, аналога у mihomo нет).
+    /// Отображение правила в строку classical-набора. <c>null</c> — правило не
+    /// переносится: выключено, домен пуст после нормализации, либо тип не имеет
+    /// соответствия (<c>Protocol</c> — DPI-классификация, аналога у mihomo нет).
+    ///
+    /// Политики в строке нет: classical-набор её не несёт, действие задаёт строка
+    /// RULE-SET каркаса — см. <see cref="ProviderFor"/>.
+    ///
+    /// Network/Port перенести нечем. Сочетание условий у Clash выражается
+    /// логическим правилом, но payload classical-провайдера логических правил
+    /// не принимает: mihomo v1.19.32 отвечает «payload format error» и
+    /// отбрасывает строку целиком (проверено живым прогоном; в каркасе
+    /// rules: тот же синтаксис проходит). Отдать одно основное условие
+    /// безопаснее потери всего правила, но условие Network/Port теряется —
+    /// это ограничение mihomo, а не выбор реализации.
     /// </summary>
     public static string? MapRule(RoutingRule rule)
     {
         if (!rule.IsEnabled) return null;
         if (string.IsNullOrWhiteSpace(rule.Value)) return null;
 
-        var head = rule.MatchType switch
+        return rule.MatchType switch
         {
-            RuleMatchType.Domain => $"DOMAIN,{rule.Value}",
-            RuleMatchType.DomainSuffix => $"DOMAIN-SUFFIX,{rule.Value}",
-            RuleMatchType.DomainKeyword => $"DOMAIN-KEYWORD,{rule.Value}",
+            RuleMatchType.Domain => Domained("DOMAIN", rule.Value),
+            RuleMatchType.DomainSuffix => Domained("DOMAIN-SUFFIX", rule.Value),
+            RuleMatchType.DomainKeyword => Domained("DOMAIN-KEYWORD", rule.Value),
             RuleMatchType.DomainRegex => $"DOMAIN-REGEX,{rule.Value}",
             RuleMatchType.Geosite => $"GEOSITE,{rule.Value}",
             // IP-CIDR6 у mihomo — синоним IP-CIDR с тем же действием.
@@ -71,25 +82,57 @@ public static class MihomoProviderWriter
             RuleMatchType.ProcessName => $"PROCESS-NAME,{rule.Value}",
             _ => null
         };
-
-        if (head is null) return null;
-
-        // Network/Port перенести нечем. Сочетание условий у Clash выражается
-        // логическим правилом, но payload classical-провайдера логических правил
-        // не принимает: mihomo v1.19.32 отвечает «payload format error» и
-        // отбрасывает строку целиком (проверено живым прогоном; в каркасе
-        // rules: тот же синтаксис проходит). Отдать одно основное условие
-        // безопаснее потери всего правила, но условие Network/Port теряется —
-        // это ограничение mihomo, а не выбор реализации.
-        return $"{head},{Policy(rule)}";
     }
 
-    private static string Policy(RoutingRule rule) => rule.Action switch
+    /// <summary>
+    /// Набор, в который уходит правило: политику набора задаёт каркас.
+    /// Авто-правила отделяются вызывающим раньше — сюда доходят только
+    /// пользовательские.
+    /// </summary>
+    public static string ProviderFor(RoutingRule rule) => rule.Action switch
     {
-        RuleAction.Direct => "DIRECT",
-        RuleAction.Block => "REJECT",
-        _ => rule.ForceProxy ? MihomoConfigGenerator.ForceGroup : MihomoConfigGenerator.ProxyGroup
+        RuleAction.Direct => MihomoConfigGenerator.DirectRulesProvider,
+        RuleAction.Block => MihomoConfigGenerator.RejectRulesProvider,
+        _ => rule.ForceProxy
+            ? MihomoConfigGenerator.ForceRulesProvider
+            : MihomoConfigGenerator.UserRulesProvider
     };
+
+    /// <summary>Доменное правило с нормализованным значением; <c>null</c> — домен пуст.</summary>
+    private static string? Domained(string keyword, string value) =>
+        NormalizeDomain(value) is { } domain ? $"{keyword},{domain}" : null;
+
+    /// <summary>
+    /// Значение доменного правила в том виде, что понимает ядро. Поле в интерфейсе
+    /// принимает полный адрес, а ядро сравнивает значение дословно: по слэшу
+    /// правило не совпадает никогда (проверено прогоном — `bash.ws` при значении
+    /// `bash.ws/dnsleak` уходит в MATCH,DIRECT). Отрезаются схема, данные
+    /// пользователя, порт, путь, запрос, якорь, ведущее `*.` и хвостовая точка;
+    /// регистр приводится к нижнему — DNS регистронезависим.
+    /// </summary>
+    public static string? NormalizeDomain(string value)
+    {
+        var v = value.Trim();
+
+        var scheme = v.IndexOf("://", StringComparison.Ordinal);
+        if (scheme >= 0) v = v[(scheme + 3)..];
+
+        var cut = v.IndexOfAny(['/', '?', '#']);
+        if (cut >= 0) v = v[..cut];
+
+        var at = v.LastIndexOf('@');
+        if (at >= 0) v = v[(at + 1)..];
+
+        // Порт отсекается, только если за двоеточием стоят одни цифры: иначе это
+        // адрес IPv6, где двоеточие разделяет группы, а не порт.
+        var colon = v.LastIndexOf(':');
+        if (colon >= 0 && v[(colon + 1)..].All(char.IsAsciiDigit)) v = v[..colon];
+
+        if (v.StartsWith("*.", StringComparison.Ordinal)) v = v[2..];
+
+        v = v.TrimEnd('.').ToLowerInvariant();
+        return v.Length == 0 ? null : v;
+    }
 
     public static void WriteServers(string path, IReadOnlyList<VpnServer> servers)
     {

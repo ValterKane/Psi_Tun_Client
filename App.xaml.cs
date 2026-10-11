@@ -21,8 +21,13 @@ public partial class App : Application
     public static readonly string MihomoExe = Path.Combine(MihomoDir, "mihomo.exe");
     public static readonly string ConfigPath = Path.Combine(MihomoDir, "config.yaml");
     public static readonly string ServersPath = Path.Combine(MihomoDir, "providers", "servers.yaml");
-    public static readonly string UserRulesPath = Path.Combine(MihomoDir, "rules", "user.yaml");
+    // Наборы правил — по одному на политику: политику несёт строка RULE-SET
+    // каркаса, строка внутри classical-набора её не задаёт.
+    public static readonly string RejectRulesPath = Path.Combine(MihomoDir, "rules", "reject.yaml");
     public static readonly string AutoRulesPath = Path.Combine(MihomoDir, "rules", "auto.yaml");
+    public static readonly string ForceRulesPath = Path.Combine(MihomoDir, "rules", "force.yaml");
+    public static readonly string UserRulesPath = Path.Combine(MihomoDir, "rules", "user.yaml");
+    public static readonly string DirectRulesPath = Path.Combine(MihomoDir, "rules", "direct.yaml");
 
     public static readonly string AppConfigPath = Path.Combine(BaseDir, "appsettings.json");
     public static readonly string RulesFilePath = Path.Combine(BaseDir, "routing-rules.json");
@@ -50,6 +55,11 @@ public partial class App : Application
     private MainWindow? _mainWindow;
     private readonly bool _startMinimized;
     private AutoProxyEngine? _autoProxy;
+
+    // Гейт повторного подключения и признак намеренного отключения — различает
+    // нормальный останов ядра от неожиданного падения.
+    private bool _connecting;
+    private bool _disconnecting;
 
     public App()
     {
@@ -225,8 +235,11 @@ public partial class App : Application
         File.WriteAllText(ConfigPath, MihomoConfigGenerator.Generate(settings, "verification-secret"));
 
         WriteStub(ServersPath, "proxies: []\n");
-        WriteStub(UserRulesPath, "payload: []\n");
+        WriteStub(RejectRulesPath, "payload: []\n");
         WriteStub(AutoRulesPath, "payload: []\n");
+        WriteStub(ForceRulesPath, "payload: []\n");
+        WriteStub(UserRulesPath, "payload: []\n");
+        WriteStub(DirectRulesPath, "payload: []\n");
     }
 
     /// <summary>
@@ -251,11 +264,11 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Провайдеры: список серверов и два файла правил. Пишутся при подключении и
-    /// при каждой правке правил; ядро подхватывает их через REST, поэтому ни
-    /// ядро, ни TUN-адаптер не пересоздаются. Разделение правил по файлам:
-    /// выученные авто-прокси уходят в свой провайдер, остальные — в
-    /// пользовательский; в каркасе `psi-auto` стоит перед `psi-user`.
+    /// Провайдеры: список серверов и файлы правил. Пишутся при подключении и при
+    /// каждой правке правил; ядро подхватывает их через REST, поэтому ни ядро, ни
+    /// TUN-адаптер не пересоздаются. Правила разложены по файлам по политике:
+    /// политику несёт строка RULE-SET каркаса, а не строка набора. Выученные
+    /// авто-прокси уходят в свой набор отдельно от пользовательских.
     /// </summary>
     private static void WriteServersAndRules(IReadOnlyList<VpnServer> servers, RoutingRuleService rules)
     {
@@ -265,8 +278,26 @@ public partial class App : Application
         MihomoProviderWriter.WriteServers(ServersPath, servers);
 
         var all = rules.Load();
-        MihomoProviderWriter.WriteRules(UserRulesPath, all.Where(r => !r.IsAutoLearned).ToList());
+
         MihomoProviderWriter.WriteRules(AutoRulesPath, all.Where(r => r.IsAutoLearned).ToList());
+
+        var byProvider = all
+            .Where(r => !r.IsAutoLearned)
+            .GroupBy(MihomoProviderWriter.ProviderFor)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Пишутся все наборы, включая пустые: иначе ядро не найдёт файл,
+        // объявленный в каркасе.
+        foreach (var (provider, path) in new[]
+                 {
+                     (MihomoConfigGenerator.RejectRulesProvider, RejectRulesPath),
+                     (MihomoConfigGenerator.ForceRulesProvider, ForceRulesPath),
+                     (MihomoConfigGenerator.UserRulesProvider, UserRulesPath),
+                     (MihomoConfigGenerator.DirectRulesProvider, DirectRulesPath)
+                 })
+        {
+            MihomoProviderWriter.WriteRules(path, byProvider.TryGetValue(provider, out var list) ? list : []);
+        }
     }
 
     /// <summary>
@@ -406,8 +437,19 @@ public partial class App : Application
         try
         {
             WriteServersAndRules(Servers, Rules);
-            await Core.Api.RefreshRuleProviderAsync(MihomoConfigGenerator.UserRulesProvider, CancellationToken.None);
-            await Core.Api.RefreshRuleProviderAsync(MihomoConfigGenerator.AutoRulesProvider, CancellationToken.None);
+
+            foreach (var provider in new[]
+                     {
+                         MihomoConfigGenerator.RejectRulesProvider,
+                         MihomoConfigGenerator.AutoRulesProvider,
+                         MihomoConfigGenerator.ForceRulesProvider,
+                         MihomoConfigGenerator.UserRulesProvider,
+                         MihomoConfigGenerator.DirectRulesProvider
+                     })
+            {
+                await Core.Api.RefreshRuleProviderAsync(provider, CancellationToken.None);
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -478,8 +520,14 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// Гейт повторного входа: без него двойное нажатие поднимает второе ядро,
+    /// и оба конфликтуют за порты и контроллер. Индекс сервера ограничивается в
+    /// <see cref="ConnectCoreAsync"/>: он мог остаться от прошлого списка подписки.
+    /// </summary>
     public async Task ConnectAsync()
     {
+        if (_connecting) return;
         if (Servers.Count == 0) return;
 
         if (!File.Exists(MihomoExe))
@@ -489,6 +537,17 @@ public partial class App : Application
 
             return;
         }
+
+        _connecting = true;
+        try { await ConnectCoreAsync(); }
+        finally { _connecting = false; }
+    }
+
+    private async Task ConnectCoreAsync()
+    {
+        // Список мог смениться подпиской — индекс вне границ даёт исключение.
+        if (SelectedServerIndex < 0 || SelectedServerIndex >= Servers.Count)
+            SelectedServerIndex = 0;
 
         // Секрет внешнего контроллера рождается в ядре, поэтому каркас пишется
         // после создания ядра и до его запуска.
@@ -512,17 +571,27 @@ public partial class App : Application
             try { _mainWindow?.UpdateTunStatus(exists); } catch { }
         };
 
+        // Неожиданное падение ядра: честный статус вместо зелёного «Подключено».
+        // Автоподъёма нет — решение владельца.
+        Core.OnExited += OnCoreExited;
+
         try
         {
             WriteServersAndRules(Servers, Rules);
+
+            // Набор чистится до старта ядра: категория ru-blocked-all в каркасе
+            // валит загрузку на сыром файле, а обновление гео идёт раз в сутки.
+            await Task.Run(() => new GeoUpdateService(BaseDir).EnsureSanitized());
+
             await WriteScaffoldAsync();
 
-            await Core.StartAsync();
+            // Живой процесс при неответившем контроллере подключением не является.
+            var started = await Core.StartAsync();
 
-            if (Core.IsRunning)
+            if (started && Core.IsRunning)
             {
-                // Set system proxy for non-TUN mode
-                if (!Settings.UseTun)
+                // Системный прокси: только вне TUN и только по настройке PAC.
+                if (Settings.UsePac && !Settings.UseTun)
                     SetSystemProxy(true, Settings.HttpPort);
 
                 ConnectionStatus = $"Подключено: {Servers[SelectedServerIndex].Name}";
@@ -563,6 +632,7 @@ public partial class App : Application
                     MessageBoxButton.OK, MessageBoxImage.Error);
 
                 Core.Dispose();
+                Core = null;
             }
         }
         catch (Exception ex)
@@ -570,8 +640,30 @@ public partial class App : Application
             MessageBox.Show($"Ошибка запуска VPN ядра: {ex.Message}", "PsiTun",
                 MessageBoxButton.OK, MessageBoxImage.Error);
 
-            Core.Dispose();
+            Core?.Dispose();
+            Core = null;
         }
+    }
+
+    /// <summary>
+    /// Ядро вышло само. Статус переводится в разорванный, индикатор адаптера
+    /// снимается, авто-прокси глушится. Событие приходит из потока процесса —
+    /// маршалится в UI. При намеренном отключении игнорируется.
+    /// </summary>
+    private void OnCoreExited()
+    {
+        if (_disconnecting) return;
+
+        Dispatcher.InvokeAsync(() =>
+        {
+            _autoProxy?.Dispose();
+            _autoProxy = null;
+            ConnectionStatus = "Соединение разорвано";
+            _tray?.UpdateStatus(false);
+            _mainWindow?.UpdateTunStatus(false);
+            _mainWindow?.UpdateStatus(false);
+            _mainWindow?.AppendLog("[Core] mihomo exited unexpectedly");
+        });
     }
 
     public void Disconnect()
@@ -579,9 +671,18 @@ public partial class App : Application
         // Remove system proxy
         SetSystemProxy(false);
 
-        Core?.Stop();
-        Core?.Dispose();
-        Core = null;
+        // Признак ставится до останова: Exited сработает внутри Stop и не должен
+        // читаться как падение.
+        _disconnecting = true;
+        try
+        {
+            if (Core is not null) Core.OnExited -= OnCoreExited;
+            Core?.Stop();
+            Core?.Dispose();
+            Core = null;
+        }
+        finally { _disconnecting = false; }
+
         _autoProxy?.Dispose();
         _autoProxy = null;
         ConnectionStatus = "Нет подключения";

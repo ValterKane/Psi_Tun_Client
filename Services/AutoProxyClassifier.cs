@@ -7,7 +7,6 @@ public enum ProbeVerdict { Good, Bad, Inconclusive }
 public static class AutoProxyClassifier
 {
     public const int TimeoutMs = 5000;
-    public const double SlowRatioMin = 3.0;          // рандом [3, 4)
     public const int RevertAfterGood = 3;
     public const int MaxAutoHosts = 65535;
     public static readonly TimeSpan Ttl = TimeSpan.FromHours(24);
@@ -24,7 +23,9 @@ public static class AutoProxyClassifier
     /// <summary>
     /// Заблокировано = через туннель проходит, а напрямую нет. Ручка через прокси
     /// неизвестна → вердикта нет: без неё признак неотличим от «сайт лежит».
-    /// Обычные 403/502 признаком не служат — их отдаёт и рабочий сайт.
+    /// Обычные 403/502 признаком не служат — их отдаёт и рабочий сайт. Сравнение
+    /// задержек исключено: «медленнее» не означает «заблокировано», а выход прокси
+    /// часто ближе к серверу, чем пользователь, — это давало ложные срабатывания.
     /// </summary>
     public static ProbeVerdict Classify(ProbeResult r, IReadOnlyCollection<string> stubHosts)
     {
@@ -32,7 +33,6 @@ public static class AutoProxyClassifier
         if (!r.DirectOk) return ProbeVerdict.Bad;
         if (IsStubRedirect(r.RedirectHost, stubHosts)) return ProbeVerdict.Bad;
         if (r.StatusCode == 451) return ProbeVerdict.Bad;
-        if (r.ProxyMs > 0 && r.DirectMs > SlowRatio() * r.ProxyMs) return ProbeVerdict.Bad;
         return ProbeVerdict.Good;
     }
 
@@ -44,8 +44,6 @@ public static class AutoProxyClassifier
 
     // откат консервативен: возвращаем в direct, только если direct явно работает
     public static bool IsHealthyForRevert(ProbeResult r) => r.DirectOk;
-
-    private static double SlowRatio() => SlowRatioMin + Random.Shared.NextDouble(); // [3, 4)
 
     public static void SelfCheck()
     {
@@ -71,7 +69,7 @@ public static class AutoProxyClassifier
         Assert(Classify(new ProbeResult("x", false, 5000, ProxyOk: false, ProxyMs: 0), stubs)
                == ProbeVerdict.Inconclusive, "both arms down must be Inconclusive");
         Assert(Classify(new ProbeResult("x", true, 4000, true, 200), stubs)
-               == ProbeVerdict.Bad, "4x slower must be Bad");
+               == ProbeVerdict.Good, "slower direct is not blockage");
         Assert(IsHealthyForRevert(new ProbeResult("x", true, 10, false, 0)),
             "revert needs DirectOk");
         Assert(!IsHealthyForRevert(new ProbeResult("x", false, 0, true, 10)),

@@ -164,14 +164,22 @@ public class MainViewModel : INotifyPropertyChanged
         if (connected)
         {
             StatusBrush = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
-            StatusText = $"Подключено: {serverName ?? App.Servers[App.SelectedServerIndex].Name}";
+            var name = serverName ?? CurrentServerName();
+            StatusText = name is null ? "Подключено" : $"Подключено: {name}";
         }
         else
         {
+            // Текст берётся из состояния подключения: догадка по наличию Core
+            // давала «Переподключение...» после неудачного запуска.
             StatusBrush = new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36));
-            StatusText = App.Core is not null ? "Переподключение..." : "Нет подключения";
+            StatusText = App.ConnectionStatus;
         }
     }
+
+    private static string? CurrentServerName() =>
+        App.SelectedServerIndex >= 0 && App.SelectedServerIndex < App.Servers.Count
+            ? App.Servers[App.SelectedServerIndex].Name
+            : null;
 
     // --- Private helpers ---
 

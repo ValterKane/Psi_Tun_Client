@@ -68,8 +68,6 @@
                             <RowDefinition Height="32"/>
                             <RowDefinition Height="32"/>
                             <RowDefinition Height="32"/>
-                            <RowDefinition Height="32"/>
-                            <RowDefinition Height="32"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Имя адаптера:"/>
@@ -86,20 +84,12 @@
                                  Text="{Binding TunMask, Mode=OneWay}"
                                  ToolTip="Авто из CIDR: /30 = 255.255.255.252"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Шлюз:"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="MTU:"/>
                         <TextBox Grid.Row="3" Grid.Column="1" Height="24"
-                                 Text="{Binding TunGateway, UpdateSourceTrigger=PropertyChanged}"/>
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="DNS:"/>
-                        <TextBox Grid.Row="4" Grid.Column="1" Height="24"
-                                 Text="{Binding TunDns, UpdateSourceTrigger=PropertyChanged}"/>
-
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="MTU:"/>
-                        <TextBox Grid.Row="5" Grid.Column="1" Height="24"
                                  Text="{Binding TunMtu, UpdateSourceTrigger=PropertyChanged}"/>
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Стек:"/>
-                        <ComboBox Grid.Row="6" Grid.Column="1" Height="24"
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Стек:"/>
+                        <ComboBox Grid.Row="4" Grid.Column="1" Height="24"
                                   SelectedIndex="{Binding TunStackIndex}">
                             <ComboBoxItem Content="gvisor (виртуальный, без elevation)"/>
                             <ComboBoxItem Content="system (адаптер в Windows, нужен админ)"/>

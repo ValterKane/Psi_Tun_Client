@@ -19,12 +19,11 @@ public class SettingsService
     // (см. план, Фаза 10). Остальные кандидаты проверку не прошли и сюда не внесены.
     public List<string> StubHosts { get; set; } = ["lawfilter.ertelecom.ru"];
 
-    // TUN settings
+    // TUN settings. Шлюза и DNS здесь нет: у mihomo таких ключей не существует —
+    // следующий узел выводится из маски, DNS живёт в секции dns каркаса.
     public string TunName { get; set; } = "sing-tun";
     public string TunAddress { get; set; } = "172.18.0.1/30";
-    public string TunGateway { get; set; } = "172.18.0.2";
     public int TunMtu { get; set; } = 1476;
-    public string TunDns { get; set; } = "172.18.0.2";
     public bool AutoRoute { get; set; } = true;
     public bool StrictRoute { get; set; } = true;
     public string TunStack { get; set; } = "system";
