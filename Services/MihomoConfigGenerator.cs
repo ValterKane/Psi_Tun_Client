@@ -59,8 +59,6 @@ public static class MihomoConfigGenerator
             AutoRoute = s.AutoRoute,
             StrictRoute = s.StrictRoute,
             DnsHijack = ["any:53"],
-            // Пусто — ключ не пишется, ядро берёт своё умолчание 198.18.0.1/30.
-            Inet4Address = string.IsNullOrWhiteSpace(s.TunAddress) ? null : [s.TunAddress.Trim()],
         },
         Dns = new MihomoDns
         {
@@ -115,13 +113,46 @@ public static class MihomoConfigGenerator
         },
         ProxyProviders = new()
         {
-            [ServersProvider] = new MihomoProxyProvider { Type = "file", Path = "./providers/servers.yaml" },
+            // Интервал проверки узлов провайдера. Мёртвый узел остаётся выбранным
+            // для DNS до следующего тика, поэтому 30 с вместо умолчания 300 с
+            // (MihomoHealthCheck.Interval). Ждать активной проверки по отказам
+            // нечего: она стартует лишь при `connection refused` либо при пяти
+            // отказах внутри окна 5 с (groupbase.go:265-300, умолчания на :95 и
+            // :98), а таймаут соединения в такое окно не укладывается.
+            [ServersProvider] = new MihomoProxyProvider
+            {
+                Type = "file",
+                Path = "./providers/servers.yaml",
+                HealthCheck = new MihomoHealthCheck { Interval = 30 },
+            },
         },
         ProxyGroups =
         [
-            new MihomoProxyGroup { Name = ProxyGroup, Type = "select", Use = [ServersProvider] },
-            new MihomoProxyGroup { Name = ForceGroup, Type = "select", Use = [ServersProvider] },
-            new MihomoProxyGroup { Name = DnsProxyGroup, Type = "fallback", Use = [ServersProvider] },
+            // Пустой провайдер: умолчание ядра COMPATIBLE — псевдо-узел с прямым
+            // выходом (`parser.go:74-77`), то есть трафик уходит мимо туннеля.
+            // REJECT — отказ вместо утечки. Ключ несут все три группы: без него
+            // пустая подписка молча выпускала бы и DoH, и трафик заблокированных.
+            new MihomoProxyGroup
+            {
+                Name = ProxyGroup,
+                Type = "select",
+                Use = [ServersProvider],
+                EmptyFallback = "REJECT",
+            },
+            new MihomoProxyGroup
+            {
+                Name = ForceGroup,
+                Type = "select",
+                Use = [ServersProvider],
+                EmptyFallback = "REJECT",
+            },
+            new MihomoProxyGroup
+            {
+                Name = DnsProxyGroup,
+                Type = "fallback",
+                Use = [ServersProvider],
+                EmptyFallback = "REJECT",
+            },
         ],
         RuleProviders = new()
         {

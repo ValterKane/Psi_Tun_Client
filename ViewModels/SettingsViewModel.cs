@@ -16,7 +16,6 @@ public class SettingsViewModel : INotifyPropertyChanged
 
         var s = App.Settings;
         _tunName = s.TunName;
-        _tunAddress = s.TunAddress;
         _tunMtu = s.TunMtu;
         _autoRoute = s.AutoRoute;
         _strictRoute = s.StrictRoute;
@@ -34,15 +33,6 @@ public class SettingsViewModel : INotifyPropertyChanged
 
     private string _tunName = "";
     public string TunName { get => _tunName; set { _tunName = value; OnPropertyChanged(); } }
-
-    private string _tunAddress = "";
-    public string TunAddress
-    {
-        get => _tunAddress;
-        set { _tunAddress = value; OnPropertyChanged(); OnPropertyChanged(nameof(TunMask)); }
-    }
-
-    public string TunMask => CidrToMask(TunAddress);
 
     private int _tunMtu = 1476;
     public string TunMtu { get => _tunMtu.ToString(); set { if (int.TryParse(value, out var v)) _tunMtu = v; OnPropertyChanged(); } }
@@ -76,7 +66,6 @@ public class SettingsViewModel : INotifyPropertyChanged
     {
         var s = App.Settings;
         s.TunName = _tunName.Trim();
-        s.TunAddress = _tunAddress.Trim();
         s.TunMtu = _tunMtu;
         s.AutoRoute = _autoRoute;
         s.StrictRoute = _strictRoute;
@@ -87,17 +76,6 @@ public class SettingsViewModel : INotifyPropertyChanged
         s.TunStack = _tunStackIndex switch { 1 => "system", 2 => "mixed", _ => "gvisor" };
         s.Save(App.AppConfigPath);
         _closeAction();
-    }
-
-    // --- Helpers ---
-
-    private static string CidrToMask(string cidr)
-    {
-        var parts = cidr.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var bits) || bits < 0 || bits > 32)
-            return "255.255.255.252";
-        var mask = bits == 0 ? 0u : ~((1u << (32 - bits)) - 1);
-        return $"{(mask >> 24) & 0xFF}.{(mask >> 16) & 0xFF}.{(mask >> 8) & 0xFF}.{mask & 0xFF}";
     }
 
     // --- INotifyPropertyChanged ---

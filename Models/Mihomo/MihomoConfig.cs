@@ -39,16 +39,13 @@ public sealed class MihomoTun
     [YamlMember(Alias = "mtu")] public int Mtu { get; set; } = 1476;
     [YamlMember(Alias = "auto-route")] public bool AutoRoute { get; set; } = true;
     [YamlMember(Alias = "strict-route")] public bool StrictRoute { get; set; } = true;
-    [YamlMember(Alias = "dns-hijack")] public List<string> DnsHijack { get; set; } = new();
-
     /// <summary>
-    /// Адрес адаптера. Ключа шлюза и DNS в схеме mihomo нет: следующий узел
-    /// выводится из маски подсети, DNS живёт в верхнеуровневой секции <c>dns</c>,
-    /// а <c>tun.dns-hijack</c> лишь перенаправляет порт 53 в её модуль
-    /// (проверено по wiki.metacubex.one и meta-docs, ядро v1.19.32).
-    /// Список: <c>null</c> — ключ не пишется, действует умолчание ядра 198.18.0.1/30.
+    /// <c>dns-hijack</c>: порт 53 перенаправляется в верхнеуровневый модуль
+    /// <c>dns</c>. Ключа адреса адаптера в схеме нет: <c>tun.inet4-address</c>
+    /// ядро v1.19.32 не читает (поле закомментировано, config/config.go:284),
+    /// адрес выводится из <c>dns.fake-ip-range</c> с принудительной маской /30.
     /// </summary>
-    [YamlMember(Alias = "inet4-address")] public List<string>? Inet4Address { get; set; }
+    [YamlMember(Alias = "dns-hijack")] public List<string> DnsHijack { get; set; } = new();
 }
 
 /// <summary>
@@ -79,6 +76,14 @@ public sealed class MihomoProxyGroup
     [YamlMember(Alias = "name")] public string Name { get; set; } = "";
     [YamlMember(Alias = "type")] public string Type { get; set; } = "select";
     [YamlMember(Alias = "use")] public List<string> Use { get; set; } = new();
+
+    /// <summary>
+    /// Чем группа отвечает при пустом списке узлов. Умолчание ядра — COMPATIBLE,
+    /// псевдо-узел с прямым выходом (`parser.go:74-77`): пустой провайдер уводил
+    /// трафик мимо туннеля. <c>REJECT</c> — отказ вместо утечки. Значением может
+    /// быть только прокси, группа запрещена. <c>null</c> — ключ не пишется.
+    /// </summary>
+    [YamlMember(Alias = "empty-fallback")] public string? EmptyFallback { get; set; }
 }
 
 public sealed class MihomoProxyProvider

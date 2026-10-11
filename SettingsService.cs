@@ -19,10 +19,11 @@ public class SettingsService
     // (см. план, Фаза 10). Остальные кандидаты проверку не прошли и сюда не внесены.
     public List<string> StubHosts { get; set; } = ["lawfilter.ertelecom.ru"];
 
-    // TUN settings. Шлюза и DNS здесь нет: у mihomo таких ключей не существует —
-    // следующий узел выводится из маски, DNS живёт в секции dns каркаса.
+    // TUN settings. Ни адреса, ни шлюза, ни DNS здесь нет: ключа `tun.inet4-address`
+    // в разборе конфига mihomo v1.19.32 не существует (поле закомментировано,
+    // config/config.go:284), адрес адаптера ядро выводит из `dns.fake-ip-range`
+    // с маской /30; DNS живёт в секции dns каркаса.
     public string TunName { get; set; } = "sing-tun";
-    public string TunAddress { get; set; } = "172.18.0.1/30";
     public int TunMtu { get; set; } = 1476;
     public bool AutoRoute { get; set; } = true;
     public bool StrictRoute { get; set; } = true;

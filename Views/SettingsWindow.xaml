@@ -66,30 +66,18 @@
                             <RowDefinition Height="32"/>
                             <RowDefinition Height="32"/>
                             <RowDefinition Height="32"/>
-                            <RowDefinition Height="32"/>
-                            <RowDefinition Height="32"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Имя адаптера:"/>
                         <TextBox Grid.Row="0" Grid.Column="1" Height="24"
                                  Text="{Binding TunName, UpdateSourceTrigger=PropertyChanged}"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="IPv4-адрес:"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="MTU:"/>
                         <TextBox Grid.Row="1" Grid.Column="1" Height="24"
-                                 Text="{Binding TunAddress, UpdateSourceTrigger=PropertyChanged}"/>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Маска подсети:"/>
-                        <TextBox Grid.Row="2" Grid.Column="1" Height="24"
-                                 IsReadOnly="True" Background="#252535"
-                                 Text="{Binding TunMask, Mode=OneWay}"
-                                 ToolTip="Авто из CIDR: /30 = 255.255.255.252"/>
-
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="MTU:"/>
-                        <TextBox Grid.Row="3" Grid.Column="1" Height="24"
                                  Text="{Binding TunMtu, UpdateSourceTrigger=PropertyChanged}"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Стек:"/>
-                        <ComboBox Grid.Row="4" Grid.Column="1" Height="24"
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Стек:"/>
+                        <ComboBox Grid.Row="2" Grid.Column="1" Height="24"
                                   SelectedIndex="{Binding TunStackIndex}">
                             <ComboBoxItem Content="gvisor (виртуальный, без elevation)"/>
                             <ComboBoxItem Content="system (адаптер в Windows, нужен админ)"/>
