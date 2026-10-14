@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -16,6 +17,9 @@ public class MainViewModel : INotifyPropertyChanged
 {
     private readonly ConcurrentQueue<string> _logQueue = new();
     private readonly DispatcherTimer _logTimer;
+
+    /// <summary>Каталог дневных файлов журнала — рядом с приложением.</summary>
+    private static readonly string LogDir = Path.Combine(App.BaseDir, "logs");
 
     public ObservableCollection<ServerListItem> Servers { get; } = [];
     public event Action<string>? LogAppended;
@@ -44,6 +48,13 @@ public class MainViewModel : INotifyPropertyChanged
     public string TunStatusText { get => _tunStatusText; set { _tunStatusText = value; OnPropertyChanged(); } }
     private Brush _tunStatusBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x00));
     public Brush TunStatusBrush { get => _tunStatusBrush; set { _tunStatusBrush = value; OnPropertyChanged(); } }
+
+    // Живость узла: признак берётся у контроллера, своей проверки индикатор не
+    // делает. Без него отказ узла выглядит как «интернет сломался».
+    private string _nodeStatusText = "Узел: ⏳";
+    public string NodeStatusText { get => _nodeStatusText; set { _nodeStatusText = value; OnPropertyChanged(); } }
+    private Brush _nodeStatusBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x00));
+    public Brush NodeStatusBrush { get => _nodeStatusBrush; set { _nodeStatusBrush = value; OnPropertyChanged(); } }
 
     // --- Settings ---
     private string _subscriptionUrl = "";
@@ -134,7 +145,20 @@ public class MainViewModel : INotifyPropertyChanged
         _autoProxyEnabled = App.Settings.AutoProxyEnabled;
     }
 
-    public void AppendLog(string line) => _logQueue.Enqueue(line);
+    /// <summary>
+    /// Единственная воронка журнала: сюда приходят строки ядра, geo-обновления,
+    /// авто-прокси, правил и самой модели представления. Строка целиком уходит в
+    /// дневной файл, в окно — без отладочных строк ядра: при уровне `debug` их
+    /// сотни в минуту, и таймер вывода вытесняет ими остальное.
+    /// </summary>
+    public void AppendLog(string line)
+    {
+        LogFile.Append(LogDir, line, DateTime.Now);
+
+        if (line.Contains("level=debug", StringComparison.Ordinal)) return;
+
+        _logQueue.Enqueue(line);
+    }
 
     public void RefreshServerList()
     {

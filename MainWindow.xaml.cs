@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Documents;
@@ -43,13 +42,6 @@ public partial class MainWindow : Window
                 var isError = line.Contains("ERROR") || line.Contains(":ERR");
                 var isWarn = line.Contains("WARN") || line.Contains("Warning");
 
-                if (isError)
-                {
-                    // Файл открывается без разделения: параллельная запись
-                    // роняла поток таймера лога (см. crash.log).
-                    try { File.AppendAllLines("error.log", new[] { line }); } catch { }
-                }
-                
                 var brush = isError ? ErrorBrush : isWarn ? WarnBrush : InfoBrush;
                 var run = new Run(line) { Foreground = brush };
                 var p = new Paragraph { Margin = new Thickness(0), Padding = new Thickness(0), LineHeight = 1};
@@ -78,6 +70,29 @@ public partial class MainWindow : Window
         _vm.TunStatusBrush = exists
             ? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50))
             : new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36));
+    }
+
+    /// <summary>
+    /// Живость узла. <c>null</c> — признак неизвестен: контроллер не ответил, узел
+    /// ещё не проверен или ядро остановлено. <c>DelayMs = 0</c> — задержка не
+    /// измерена, показывается только признак.
+    /// </summary>
+    public void UpdateNodeStatus((bool Alive, int DelayMs)? liveness)
+    {
+        if (liveness is not { } node)
+        {
+            _vm.NodeStatusText = "Узел: ⏳";
+            _vm.NodeStatusBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x00));
+            return;
+        }
+
+        _vm.NodeStatusText = !node.Alive
+            ? "Узел: ❌"
+            : node.DelayMs > 0 ? $"Узел: ✅ {node.DelayMs} мс" : "Узел: ✅";
+
+        _vm.NodeStatusBrush = new SolidColorBrush(node.Alive
+            ? Color.FromRgb(0x4C, 0xAF, 0x50)
+            : Color.FromRgb(0xF4, 0x43, 0x36));
     }
 
     private async void QrFromClipboard_Click(object sender, RoutedEventArgs e)

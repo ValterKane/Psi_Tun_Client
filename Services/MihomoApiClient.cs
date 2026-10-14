@@ -87,6 +87,61 @@ public sealed class MihomoApiClient : IDisposable
         return doc.RootElement.TryGetProperty("delay", out var delay) ? delay.GetInt32() : 0;
     }
 
+    /// <summary>
+    /// <c>GET /providers/proxies/{name}</c> — живость узлов провайдера. Поля узла
+    /// по документации API: <c>alive</c> (жив ли) и <c>history</c> — массив
+    /// <c>{time, delay}</c>. Возвращается первый узел: подписка несёт один узел,
+    /// а группа <c>DNS-PROXY</c> типа <c>fallback</c> работает именно им.
+    ///
+    /// <c>null</c> — признак не получен: пустой список, нет поля <c>alive</c>,
+    /// отказ сети или неразобранное тело. Отказ глушится по образцу
+    /// <see cref="ReadyAsync"/>: метод вызывается таймером индикатора, и
+    /// исключение из него уронило бы приложение.
+    /// </summary>
+    public async Task<(bool Alive, int DelayMs)?> ProviderLivenessAsync(string name, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get, $"/providers/proxies/{Uri.EscapeDataString(name)}", null, ct).ConfigureAwait(false);
+
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+
+            if (!doc.RootElement.TryGetProperty("proxies", out var proxies) ||
+                proxies.ValueKind != System.Text.Json.JsonValueKind.Array ||
+                proxies.GetArrayLength() == 0)
+                return null;
+
+            var node = proxies[0];
+            if (!node.TryGetProperty("alive", out var alive) ||
+                alive.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                return null;
+
+            return (alive.GetBoolean(), LastDelay(node));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
+                                      or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Задержка последней проверки узла; ноль — проверки не было.</summary>
+    private static int LastDelay(System.Text.Json.JsonElement node)
+    {
+        if (!node.TryGetProperty("history", out var history) ||
+            history.ValueKind != System.Text.Json.JsonValueKind.Array ||
+            history.GetArrayLength() == 0)
+            return 0;
+
+        var last = history[history.GetArrayLength() - 1];
+        return last.TryGetProperty("delay", out var delay) &&
+               delay.ValueKind == System.Text.Json.JsonValueKind.Number
+            ? delay.GetInt32()
+            : 0;
+    }
+
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? body, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, _base + path) { Content = body };

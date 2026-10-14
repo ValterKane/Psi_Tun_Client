@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Threading;
 using PsiTun.Models;
 using PsiTun.Services;
 using PsiTun.ViewModels;
@@ -55,6 +56,7 @@ public partial class App : Application
     private MainWindow? _mainWindow;
     private readonly bool _startMinimized;
     private AutoProxyEngine? _autoProxy;
+    private DispatcherTimer? _nodeWatch;
 
     // Гейт повторного подключения и признак намеренного отключения — различает
     // нормальный останов ядра от неожиданного падения.
@@ -549,10 +551,22 @@ public partial class App : Application
         if (SelectedServerIndex < 0 || SelectedServerIndex >= Servers.Count)
             SelectedServerIndex = 0;
 
+        // Разделитель сессии: дневной файл собирает все подключения дня, и без
+        // метки границы между ними в нём не видны.
+        _mainWindow?.AppendLog(
+            $"===== сессия {DateTime.Now:yyyy-MM-dd HH:mm:ss}, узел: {Servers[SelectedServerIndex].Name} =====");
+
         // Секрет внешнего контроллера рождается в ядре, поэтому каркас пишется
         // после создания ядра и до его запуска.
         Core?.Dispose();
-        Core = new MihomoCore(MihomoExe, MihomoDir, ConfigPath) { TunEnabled = Settings.UseTun };
+        // Порты передаются ядру для ожидания их освобождения: повторный коннект
+        // в том же процессе иначе стартует на сокетах убитого ядра.
+        Core = new MihomoCore(MihomoExe, MihomoDir, ConfigPath)
+        {
+            TunEnabled = Settings.UseTun,
+            TunDevice = Settings.TunName,
+            PortsToRelease = [Settings.SocksPort, Settings.HttpPort, MihomoConfigGenerator.ControllerPort],
+        };
 
         Core.OnLog += (line) =>
         {
@@ -597,6 +611,7 @@ public partial class App : Application
                 ConnectionStatus = $"Подключено: {Servers[SelectedServerIndex].Name}";
                 _tray?.UpdateStatus(true);
                 _mainWindow?.UpdateStatus(true, Servers[SelectedServerIndex].Name);
+                StartNodeWatch();
                 Settings.LastServerIndex = SelectedServerIndex;
                 Settings.Save(AppConfigPath);
 
@@ -646,6 +661,52 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Индикатор живости узла. Своего обращения к узлу не делает: читает
+    /// состояние, которое ядро и так обновляет своей проверкой раз в 30 с
+    /// (`health-check.interval` каркаса). Шаг 5 с при том интервале даёт
+    /// запоздание не больше одного шага и лишних рукопожатий REALITY не создаёт.
+    /// </summary>
+    private void StartNodeWatch()
+    {
+        StopNodeWatch();
+        _nodeWatch = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background,
+            async (_, _) => await RefreshNodeStatusAsync(), Dispatcher.CurrentDispatcher);
+        _nodeWatch.Start();
+    }
+
+    private void StopNodeWatch()
+    {
+        _nodeWatch?.Stop();
+        _nodeWatch = null;
+    }
+
+    /// <summary>
+    /// Опрос контроллера. Исключения гасятся: обработчик таймера асинхронный, и
+    /// вылетевшее из него исключение уронило бы приложение.
+    /// </summary>
+    private async Task RefreshNodeStatusAsync()
+    {
+        try
+        {
+            if (Core is not { IsRunning: true } core)
+            {
+                StopNodeWatch();
+                _mainWindow?.UpdateNodeStatus(null);
+                return;
+            }
+
+            var liveness = await core.Api.ProviderLivenessAsync(
+                MihomoConfigGenerator.ServersProvider, CancellationToken.None);
+
+            _mainWindow?.UpdateNodeStatus(liveness);
+        }
+        catch
+        {
+            _mainWindow?.UpdateNodeStatus(null);
+        }
+    }
+
+    /// <summary>
     /// Ядро вышло само. Статус переводится в разорванный, индикатор адаптера
     /// снимается, авто-прокси глушится. Событие приходит из потока процесса —
     /// маршалится в UI. При намеренном отключении игнорируется.
@@ -654,6 +715,8 @@ public partial class App : Application
     {
         if (_disconnecting) return;
 
+        StopNodeWatch();
+
         Dispatcher.InvokeAsync(() =>
         {
             _autoProxy?.Dispose();
@@ -661,6 +724,7 @@ public partial class App : Application
             ConnectionStatus = "Соединение разорвано";
             _tray?.UpdateStatus(false);
             _mainWindow?.UpdateTunStatus(false);
+            _mainWindow?.UpdateNodeStatus(null);
             _mainWindow?.UpdateStatus(false);
             _mainWindow?.AppendLog("[Core] mihomo exited unexpectedly");
         });
@@ -668,6 +732,9 @@ public partial class App : Application
 
     public void Disconnect()
     {
+        StopNodeWatch();
+        _mainWindow?.UpdateNodeStatus(null);
+
         // Remove system proxy
         SetSystemProxy(false);
 

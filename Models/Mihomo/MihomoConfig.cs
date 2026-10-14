@@ -19,7 +19,11 @@ public sealed class MihomoConfig
     [YamlMember(Alias = "secret")] public string Secret { get; set; } = "";
     [YamlMember(Alias = "allow-lan")] public bool AllowLan { get; set; }
     [YamlMember(Alias = "mode")] public string Mode { get; set; } = "rule";
-    [YamlMember(Alias = "log-level")] public string LogLevel { get; set; } = "info";
+    // Уровень debug — ради строк, которых нет на info: `Health Checked … alive:`
+    // и `REALITY Authentication:`. По ним отказ узла отличается от отказа всего
+    // остального. В окно приложения отладочные строки не пропускаются
+    // (MainViewModel.AppendLog), целиком они идут только в дневной файл.
+    [YamlMember(Alias = "log-level")] public string LogLevel { get; set; } = "debug";
     [YamlMember(Alias = "find-process-mode")] public string FindProcessMode { get; set; } = "strict";
     [YamlMember(Alias = "geodata-mode")] public bool GeodataMode { get; set; } = true;
     [YamlMember(Alias = "tun")] public MihomoTun Tun { get; set; } = new();

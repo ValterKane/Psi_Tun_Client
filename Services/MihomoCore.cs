@@ -1,6 +1,8 @@
 using System.Buffers.Text;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 
 namespace PsiTun.Services;
@@ -51,8 +53,29 @@ public sealed class MihomoCore : IDisposable
     /// </summary>
     public bool TunEnabled { get; init; }
 
+    /// <summary>Имя TUN-адаптера: по нему снимается остаток прошлого запуска.</summary>
+    public string TunDevice { get; init; } = "sing-tun";
+
+    /// <summary>
+    /// Порты ядра для ожидания освобождения после останова. Пустой список —
+    /// ожидания нет.
+    /// </summary>
+    public IReadOnlyList<int> PortsToRelease { get; init; } = [];
+
     public static bool IsTunReadyLine(string line) =>
         line.Contains(TunReadyMarker, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Строка ошибки ядра. Уровень стоит в самой строке, но написание различно:
+    /// mihomo пишет строчными (<c>level=error</c>), прежнее ядро sing-box —
+    /// прописными (<c>ERROR</c>, метка <c>[sing-box:ERR]</c>). Признак держится в
+    /// одном месте: по нему и <see cref="LastError"/>, и запись журнала на диск.
+    /// </summary>
+    public static bool IsErrorLine(string line) =>
+        line.Contains("level=error", StringComparison.Ordinal)
+        || line.Contains("level=fatal", StringComparison.Ordinal)
+        || line.Contains("ERROR", StringComparison.Ordinal)
+        || line.Contains(":ERR", StringComparison.Ordinal);
 
     public MihomoCore(string exePath, string workDir, string configPath)
     {
@@ -125,6 +148,11 @@ public sealed class MihomoCore : IDisposable
         _errorLines.Clear();
         ExitCode = null;
 
+        // Остаток прошлого останова снимается до запуска ядра: иначе повторный
+        // коннект в том же процессе стартует на живом ещё адаптере и обрывается.
+        if (TunEnabled) await CleanupTunAdapterAsync();
+        await WaitForPortReleaseAsync();
+
         if (!ValidateConfig(_exePath, _workDir, _configPath))
         {
             OnLog?.Invoke("[Core] mihomo config invalid, start aborted");
@@ -162,6 +190,103 @@ public sealed class MihomoCore : IDisposable
 
         OnTunStatusChanged?.Invoke(true);
         return true;
+    }
+
+    /// <summary>
+    /// Снятие остаточного TUN-адаптера прошлого запуска. <see cref="Stop"/>
+    /// снимает ядро через <c>TerminateProcess</c>, поэтому адаптер и его маршруты
+    /// ядро за собой не убирает, а Windows снимает их не мгновенно. Повторный
+    /// коннект в том же процессе стартует через доли секунды и застаёт адаптер
+    /// живым: тогда собственное соединение ядра к узлу уходит внутрь тунеля и
+    /// получает <c>context canceled</c>. Мера восстановлена из <c>CoreManager</c>
+    /// (до v2.0), где стояла на каждом старте.
+    /// </summary>
+    private async Task CleanupTunAdapterAsync()
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            if (!await AdapterPresentAsync(TunDevice))
+            {
+                if (attempt > 0) OnLog?.Invoke("[Core] stale TUN adapter gone");
+                return;
+            }
+
+            // Первый заход — снять принудительно, дальше только ждать: снятие
+            // адаптера в ядре асинхронно настолько, что вызов его не дожидается.
+            if (attempt == 0) await RemoveAdapterAsync(TunDevice);
+            await Task.Delay(500);
+        }
+
+        OnLog?.Invoke($"[Core] stale TUN adapter '{TunDevice}' still present");
+    }
+
+    private static async Task<bool> AdapterPresentAsync(string name) =>
+        (await RunPowerShellAsync(
+            $"Get-NetAdapter -Name '{name}' -ErrorAction SilentlyContinue | " +
+            "Select-Object -ExpandProperty Name")).Length > 0;
+
+    private static Task<string> RemoveAdapterAsync(string name) =>
+        RunPowerShellAsync(
+            $"Get-NetAdapter -Name '{name}' -ErrorAction SilentlyContinue | " +
+            "Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue");
+
+    /// <summary>
+    /// Вывод <c>powershell</c> или пустая строка. Отсутствие самой <c>powershell</c>
+    /// ожиданием не считается: без вывода адаптер признаётся отсутствующим.
+    /// </summary>
+    private static async Task<string> RunPowerShellAsync(string script)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                Arguments = $"-NoProfile -Command \"{script}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            using var p = Process.Start(psi);
+            if (p is null) return "";
+
+            var output = p.StandardOutput.ReadToEndAsync();
+            p.WaitForExit(5000);
+            return (await output).Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Освобождение портов ядра после останова. Слушающий сокет убитого процесса
+    /// освобождается не мгновенно, а занятый порт ядро роняет ошибкой привязки.
+    /// </summary>
+    private async Task WaitForPortReleaseAsync()
+    {
+        foreach (var port in PortsToRelease)
+        {
+            for (var attempt = 0; attempt < 25 && await IsPortBusyAsync(port); attempt++)
+                await Task.Delay(200);
+        }
+    }
+
+    /// <summary>True, если на петлевом порту кто-то принимает соединения.</summary>
+    public static async Task<bool> IsPortBusyAsync(int port)
+    {
+        try
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(IPAddress.Loopback, port);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -239,16 +364,15 @@ public sealed class MihomoCore : IDisposable
 
     /// <summary>
     /// Ядро пишет и в stdout, и в stderr, уровень стоит в самой строке, поэтому
-    /// разбор по потоку невозможен: ошибкой считается только строка с
-    /// <c>level=error</c> или <c>level=fatal</c>. Иначе весь лог ядра попал бы в
+    /// разбор по потоку невозможен: ошибкой считается строка по признаку
+    /// <see cref="IsErrorLine"/>. Иначе весь лог ядра попал бы в
     /// <see cref="LastError"/>.
     /// </summary>
     private void HandleLine(string tag, string? data)
     {
         if (string.IsNullOrEmpty(data)) return;
 
-        if (data.Contains("level=error", StringComparison.Ordinal) ||
-            data.Contains("level=fatal", StringComparison.Ordinal))
+        if (IsErrorLine(data))
             _errorLines.Add(data);
 
         if (IsTunReadyLine(data)) _tunReady.TrySetResult(true);
